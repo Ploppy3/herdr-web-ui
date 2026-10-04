@@ -245,7 +245,8 @@ interface SocketData {
   revoked?: boolean;
   unwatchDevice?: () => void;
   relay?: MachineRelay;
-  attached: Set<string>;
+  /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
+  attached: Map<string, object>;
   output: Map<string, OutputWindow>;
   closing: boolean;
   /** the connection's authority: observe connections cannot type or resize */
@@ -447,7 +448,7 @@ export function createServer(
     if (client.data.closing) return;
     client.data.closing = true;
     clients.delete(client);
-    for (const paneId of client.data.attached) detach(paneId, client);
+    for (const paneId of client.data.attached.keys()) detach(paneId, client);
     client.data.attached.clear();
     client.data.output.clear();
     client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output consumer stalled");
@@ -1005,13 +1006,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -1590,7 +1591,7 @@ export function createServer(
       backpressureLimit: OUTPUT_HARD_BYTES,
       closeOnBackpressureLimit: true,
       drain(client) {
-        for (const paneId of client.data.attached) reconcileOutput(paneId);
+        for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
       },
       async open(client) {
         if (client.data.deviceId) {
@@ -1598,7 +1599,7 @@ export function createServer(
             client.data.revoked = true;
             client.data.closing = true;
             clients.delete(client);
-            for (const paneId of client.data.attached) detach(paneId, client);
+            for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
             client.data.output.clear();
             client.data.relay?.close(1008, "Device access revoked");
@@ -1641,7 +1642,7 @@ export function createServer(
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
-              client.data.attached.add(message.pane_id);
+              if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, {});
               let attachment: PaneAttachment;
               try {
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
@@ -1797,13 +1798,14 @@ export function createServer(
               // Unattached RPC keys retain their existing path (including native Windows).
               const origin = attachment?.clients.has(client) ? attachment : undefined;
               const pty = origin?.pty;
+              const claim = client.data.attached.get(message.pane_id);
               if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
               }
               await serialize(message.pane_id, async () => {
                 if (origin && (attachments.get(message.pane_id) !== origin || origin.pty !== pty
-                  || !origin.clients.has(client) || !origin.ready)) {
+                  || client.data.attached.get(message.pane_id) !== claim || !origin.clients.has(client) || !origin.ready)) {
                   if (clients.has(client)) send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                   return;
                 }
@@ -1902,7 +1904,7 @@ export function createServer(
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
                 // the fresh observer needs the grid it must adopt
-                for (const paneId of client.data.attached) {
+                for (const paneId of client.data.attached.keys()) {
                   const attachment = attachments.get(paneId);
                   if (attachment) {
                     send(client, { type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
@@ -1922,7 +1924,7 @@ export function createServer(
         client.data.unwatchDevice?.();
         if (client.data.relay) { client.data.relay.close(); return; }
         clients.delete(client);
-        for (const paneId of client.data.attached) detach(paneId, client);
+        for (const paneId of client.data.attached.keys()) detach(paneId, client);
         client.data.attached.clear();
         client.data.output.clear();
       },
