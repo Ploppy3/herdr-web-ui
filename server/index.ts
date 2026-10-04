@@ -1792,11 +1792,21 @@ export function createServer(
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
-              if (attachments.get(message.pane_id)?.held) {
+              const attachment = attachments.get(message.pane_id);
+              // Terminal chords belong to the attachment that accepted them, just like input.
+              // Unattached RPC keys retain their existing path (including native Windows).
+              const origin = attachment?.clients.has(client) ? attachment : undefined;
+              const pty = origin?.pty;
+              if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
               }
               await serialize(message.pane_id, async () => {
+                if (origin && (attachments.get(message.pane_id) !== origin || origin.pty !== pty
+                  || !origin.clients.has(client) || !origin.ready)) {
+                  if (clients.has(client)) send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                  return;
+                }
                 // held while this waited its turn (the attach was refused after the check above)
                 if (attachments.get(message.pane_id)?.held) {
                   send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });

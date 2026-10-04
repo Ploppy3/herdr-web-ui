@@ -14,6 +14,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the pane or disconnecting. Pasted text and submitted drafts keep their contents.
 
 ### Fixed
+- Queued terminal key chords are cancelled when the sender leaves their attachment or
+  its terminal is replaced.
 - Switching to another pane no longer shows the previous pane's chat for a moment before the
   new one loads.
   ([#422](https://github.com/devswha/herdr-web-ui/pull/422) by @Haeminway1)
