@@ -64,13 +64,17 @@ it("requires attachment readiness and never replays held input after a detach", 
   socket.receive(snapshot(["submit", "input-ready"]));
   client.attach("w1:p1", 80, 24);
   expect(client.sendInput("w1:p1", "lost?")).toBe(false);
+  expect(client.sendKeys("w1:p1", ["ctrl+alt+shift+left"])).toBe(false);
   socket.receive({ type: "pty-data", pane_id: "w1:p1", data: "screen" });
   expect(client.canInput("w1:p1")).toBe(false);
   socket.receive({ type: "input-ready", pane_id: "w1:p1" });
   expect(client.sendInput("w1:p1", "한글")).toBe(true);
+  expect(client.sendKeys("w1:p1", ["ctrl+alt+shift+left"])).toBe(true);
   client.detach("w1:p1");
   socket.receive({ type: "input-ready", pane_id: "w1:p1" });
   expect(client.sendInput("w1:p1", "wrong pane")).toBe(false);
+  expect(client.sendKeys("w1:p1", ["ctrl+alt+shift+left"])).toBe(false);
+  expect(socket.sent.filter((m) => m.type === "keys")).toEqual([{ type: "keys", pane_id: "w1:p1", keys: ["ctrl+alt+shift+left"] }]);
   expect(socket.sent.filter((m) => m.type === "input")).toEqual([{ type: "input", pane_id: "w1:p1", text: "한글" }]);
   client.close();
 });

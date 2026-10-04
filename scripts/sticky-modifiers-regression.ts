@@ -1,0 +1,146 @@
+/** Touch controls → browser WS → Herdr's pane encoder → real raw-mode PTY. */
+import "./test-herdr.ts";
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { chromium } from "playwright-core";
+import { createServer } from "../server/index.ts";
+import { workspaceCreate, workspaceClose, paneSendText, paneSendKeys, paneRead } from "../server/herdr/client.ts";
+
+const root = mkdtempSync(join(tmpdir(), "herdr-sticky-qa-"));
+const owned: string[] = [];
+const server = createServer({ port: 0, stateDir: join(root, "state"), token: "" });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+const errors: string[] = [];
+const evidence = process.env.UI_EVIDENCE_DIR;
+if (evidence) mkdirSync(evidence, { recursive: true });
+async function until(check: () => boolean | Promise<boolean>, label: string) {
+  const deadline = Date.now() + 10_000;
+  while (!(await check())) {
+    assert(Date.now() < deadline, `timed out: ${label}`);
+    await Bun.sleep(20);
+  }
+}
+try {
+  for (const mode of ["legacy", "kitty"] as const) {
+    const made = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-sticky-${mode}`, focus: false });
+    owned.push(made.workspace.workspace_id);
+    const pane = made.root_pane.pane_id;
+    const log = join(root, `${mode}.hex`);
+    const probe = resolve("scripts/fixtures/modifier-probe.py");
+    await paneSendText(pane, `python3 -u '${probe}' '${log}' ${mode}`);
+    await paneSendKeys(pane, ["Enter"]);
+    await until(async () => (await paneRead({ paneId: pane, source: "visible" })).text.includes(`PROBE READY ${mode}`), "raw probe ready");
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await context.addInitScript(({ pane }) => {
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "direct" }));
+      localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+    }, { pane });
+    const page = await context.newPage();
+    page.on("pageerror", (error) => errors.push(error.message));
+    const frames: any[] = [];
+    let ws: import("playwright-core").WebSocketRoute | undefined;
+    await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+      ws = socket;
+      const remote = socket.connectToServer();
+      socket.onMessage((raw) => { frames.push(JSON.parse(String(raw))); remote.send(raw); });
+    });
+    await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
+    const ctrl = page.locator('[data-key="Control"]');
+    await until(async () => !(await ctrl.isDisabled()), "terminal input ready");
+    const input = page.locator(".xterm-helper-textarea");
+    await input.focus();
+    let previousMask = 0;
+    const held = async (mask: number) => {
+      for (const [bit, key] of [[4, "Control"], [2, "Alt"], [1, "Shift"]] as const) {
+        if ((mask & bit) !== (previousMask & bit)) await page.locator(`[data-key="${key}"]`).tap();
+        assert.equal(await page.locator(`[data-key="${key}"]`).getAttribute("aria-pressed"), String(!!(mask & bit)));
+      }
+      previousMask = mask;
+      assert.equal(await input.evaluate((element) => document.activeElement === element), true, "touch toggle keeps typing focus");
+    };
+    const read = () => existsSync(log) ? readFileSync(log, "utf8") : "";
+    for (let mask = 1; mask < 8; mask++) {
+      await held(mask);
+      const prefix = [mask & 4 ? "ctrl" : "", mask & 2 ? "alt" : "", mask & 1 ? "shift" : ""].filter(Boolean).join("+");
+      for (const [key, name] of [["ArrowLeft", "left"], ["ArrowUp", "up"], ["ArrowRight", "right"], ["ArrowDown", "down"], ["a", "a"], ["b", "b"], ["!", "!"], ["+", "plus"], [" ", "space"], ["я", "я"], ["😀", "😀"], ["Enter", "enter"], ["Tab", "tab"], ["Backspace", "backspace"]]) {
+        const before = read();
+        const frameCount = frames.length;
+        if (key!.startsWith("Arrow") || key === "Tab" || key === "Enter") await page.locator(`[data-key="${key}"]`).tap();
+        else if (key === "Backspace") await input.press("Backspace");
+        else await page.keyboard.insertText(key!); // soft-keyboard input without keydown
+        await until(() => frames.length > frameCount, "modified key frame");
+        assert.equal(frames.at(-1).type, "keys");
+        assert.deepEqual(frames.at(-1).keys, [`${prefix}+${name}`]);
+        await until(() => read().length > before.length, "modified key received by PTY");
+        const received = Buffer.from(read().slice(before.length), "hex").toString();
+        const parameter = 1 + mask;
+        if (key!.startsWith("Arrow")) {
+          const final = ({ ArrowLeft: "D", ArrowUp: "A", ArrowRight: "C", ArrowDown: "B" } as Record<string, string>)[key!];
+          assert.equal(received, `\x1b[1;${parameter}${final}`, `${mode} ${prefix}+${name}`);
+        } else if (mode === "kitty") {
+          const code = ({ Enter: 13, Tab: 9, Backspace: 127 } as Record<string, number>)[key!] ?? key!.codePointAt(0);
+          assert.equal(received, `\x1b[${code};${parameter}u`, `${mode} ${prefix}+${name}`);
+        }
+        console.log(`${mode} ${prefix}+${name}: ${Buffer.from(received).toString("hex")}`);
+      }
+      // Every modifier stays held across all keys, including Control.
+      assert.equal(await ctrl.getAttribute("aria-pressed"), String(!!(mask & 4)));
+    }
+    await held(7);
+    if (evidence) await page.screenshot({ path: join(evidence, `sticky-${mode}-phone.png`) });
+    // Paste is text, including a single character; it must not become a shortcut.
+    const pasteBefore = read();
+    const pasteFrames = frames.length;
+    await input.evaluate((element) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", "x");
+      element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    });
+    await until(() => read().length > pasteBefore.length, "paste received");
+    assert.equal(frames.slice(pasteFrames).some((frame) => frame.type === "keys"), false);
+    assert.equal(Buffer.from(read().slice(pasteBefore.length), "hex").toString(), "x");
+    // A multi-character IME commit stays text and appears once.
+    const imeBefore = read();
+    await input.evaluate((element) => {
+      const box = element as HTMLTextAreaElement;
+      box.value = "";
+      box.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      box.value = "한글";
+      box.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data: "한글" }));
+      box.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "한글" }));
+    });
+    await until(() => read().length > imeBefore.length, "IME commit received");
+    assert.equal(Buffer.from(read().slice(imeBefore.length), "hex").toString(), "한글");
+    // Hardware modifiers combine with held touch modifiers as well.
+    await held(2);
+    await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
+    await input.focus();
+    const hardwareBefore = read();
+    await input.press("Control+Shift+d");
+    await until(() => read().length > hardwareBefore.length, "hardware/touch combination received");
+    assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
+    if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
+    // Leaving the terminal lens clears held state on the same pane.
+    await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).tap();
+    await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).tap();
+    await until(async () => !(await ctrl.isDisabled()), "terminal lens ready again");
+    for (const key of ["Control", "Alt", "Shift"]) assert.equal(await page.locator(`[data-key="${key}"]`).getAttribute("aria-pressed"), "false");
+    previousMask = 0;
+    await input.focus();
+    await held(7);
+    // Disconnect clears all modifiers and sends no retained shortcuts on reconnect.
+    await ws!.close();
+    await until(async () => (await ctrl.getAttribute("aria-pressed")) === "false", "disconnect clears held Ctrl");
+    for (const key of ["Alt", "Shift"]) assert.equal(await page.locator(`[data-key="${key}"]`).getAttribute("aria-pressed"), "false");
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "phone has no horizontal page overflow");
+    await context.close();
+    console.log(`PASS ${mode}: seven modifier combinations, repeated keys, actual PTY bytes, touch focus, paste, IME, reset`);
+  }
+  assert.deepEqual(errors, []);
+} finally {
+  await browser.close(); server.stop();
+  for (const id of owned) await workspaceClose(id);
+  rmSync(root, { recursive: true, force: true });
+}

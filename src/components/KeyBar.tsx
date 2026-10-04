@@ -3,17 +3,17 @@ import { Keyboard } from "lucide-react";
 
 import "./KeyBar.css";
 
-import type { KeyBarKey } from "../lib/keys.ts";
+import type { KeyBarKey, StickyModifiers } from "../lib/keys.ts";
 import { useT } from "../lib/i18n.ts";
 
 export type { KeyBarKey };
 
 export interface KeyBarProps {
   disabled?: boolean;
-  /** Fires for every key except Control, which toggles the one-shot modifier instead. */
+  /** Modifier buttons toggle; other keys go to the terminal. */
   onKey: (key: KeyBarKey) => void;
-  ctrlArmed: boolean;
-  onToggleCtrl: () => void;
+  modifiers: StickyModifiers;
+  onToggleModifier: (modifier: keyof StickyModifiers) => void;
   /** on a touch screen: whether the keyboard types straight into the terminal (else the input line) */
   directTyping?: boolean;
   onToggleDirect?: () => void;
@@ -84,7 +84,7 @@ export const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: D
  * for touch, a hardware keyboard already has all of them. Hence role="group", not
  * toolbar: a toolbar promises arrow-key navigation between items, which these skip.
  */
-export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleDirect, disabled }: KeyBarProps) {
+export function KeyBar({ onKey, modifiers, onToggleModifier, directTyping, onToggleDirect, disabled }: KeyBarProps) {
   const t = useT();
   return (
     <div className="key-bar" role="group" aria-label={t("Terminal keys")}>
@@ -100,8 +100,17 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleD
       <Key disabled={disabled} dataKey="Tab" onPress={() => onKey("Tab")}>
         Tab
       </Key>
-      <Key disabled={disabled} dataKey="Control" pressed={ctrlArmed} onPress={onToggleCtrl}>
+      <Key disabled={disabled} dataKey="Control" pressed={modifiers.ctrl} onPress={() => onToggleModifier("ctrl")}>
         Ctrl
+      </Key>
+      <Key disabled={disabled} dataKey="Alt" pressed={modifiers.alt} onPress={() => onToggleModifier("alt")}>
+        Alt
+      </Key>
+      <Key disabled={disabled} dataKey="Shift" pressed={modifiers.shift} onPress={() => onToggleModifier("shift")}>
+        Shift
+      </Key>
+      <Key disabled={disabled} dataKey="Enter" onPress={() => onKey("Enter")}>
+        Enter
       </Key>
       {ARROWS.map((arrow) => (
         <Key disabled={disabled} key={arrow.key} dataKey={arrow.key} label={t(arrow.label)} onPress={() => onKey(arrow.key)}>

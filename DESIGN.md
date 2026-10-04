@@ -534,7 +534,9 @@ One set for both themes: the card is island black wherever it shows.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
-- The mobile key bar is Esc, Tab, one-shot Ctrl, arrows and `^C`; it never steals xterm focus.
+- The mobile key bar is Esc, Tab, sticky Ctrl/Alt/Shift, Enter, arrows and `^C`;
+  it never steals typing focus. Modifiers remain highlighted until toggled off,
+  leaving the pane/lens or disconnecting; each exposes `aria-pressed`.
 - The mobile drawer slides over a scrim. Closed visibility removes its controls from the tab order.
 
 ### In-app alert

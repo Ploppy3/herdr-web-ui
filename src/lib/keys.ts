@@ -5,9 +5,43 @@
  */
 
 /** Keys a soft keyboard has no room for; ctrl-c is a chord, the rest are DOM key names. */
-export type KeyBarKey = "Escape" | "Tab" | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "ctrl-c";
+export type KeyBarKey = "Escape" | "Tab" | "Enter" | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "ctrl-c";
 
-/** A single printable character: what the one-shot Control modifier consumes. */
+export interface StickyModifiers { ctrl: boolean; alt: boolean; shift: boolean }
+export const NO_STICKY_MODIFIERS: StickyModifiers = { ctrl: false, alt: false, shift: false };
+
+export function hasModifiers(modifiers: StickyModifiers): boolean {
+  return modifiers.ctrl || modifiers.alt || modifiers.shift;
+}
+
+/** Send logical chords to Herdr, which owns the target pane's keyboard protocol.
+ * A plus or space needs a name because Herdr's chord parser splits on '+' and trims.
+ * Keep the typed symbol: the phone's layout already chose it; don't assume US Shift.
+ */
+export function terminalChord(key: string, modifiers: StickyModifiers): string | null {
+  const names: Record<string, string> = {
+    ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+    Enter: "enter", Tab: "tab", Escape: "esc", Backspace: "backspace",
+    " ": "space", "+": "plus",
+  };
+  const name = names[key] ?? (/^F(?:[1-9]|1[0-2])$/.test(key) ? key.toLowerCase()
+    : [...key].length === 1 && key.codePointAt(0)! >= 0x20 && key !== "\x7f" ? key : null);
+  if (name === null) return null;
+  return [modifiers.ctrl && "ctrl", modifiers.alt && "alt", modifiers.shift && "shift", name].filter(Boolean).join("+");
+}
+
+/** Soft keyboards often emit input events without a DOM keydown. Only individual
+ * committed characters are keys; a multi-character composition is text.
+ */
+export function keyFromData(data: string): string | null {
+  const fixed: Record<string, string> = { "\r": "Enter", "\t": "Tab", "\x7f": "Backspace", "\x1b": "Escape" };
+  if (fixed[data]) return fixed[data]!;
+  const arrow = /^\x1b(?:\[|O)([ABCD])$/.exec(data);
+  if (arrow) return ({ A: "ArrowUp", B: "ArrowDown", C: "ArrowRight", D: "ArrowLeft" } as Record<string, string>)[arrow[1]!]!;
+  return [...data].length === 1 && data.codePointAt(0)! >= 0x20 ? data : null;
+}
+
+/** A single printable UTF-16 character. */
 export function isPrintable(data: string): boolean {
   if (data.length !== 1) return false;
   const code = data.charCodeAt(0);
@@ -31,6 +65,8 @@ export function keySequence(key: KeyBarKey, applicationCursorKeys: boolean): str
       return "\u001b";
     case "Tab":
       return "\t";
+    case "Enter":
+      return "\r";
     case "ctrl-c":
       return "\u0003";
     case "ArrowUp":

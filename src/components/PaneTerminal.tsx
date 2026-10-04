@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket } from "../lib/ws.ts";
-import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
+import { hasModifiers, terminalChord, keyFromData, keySequence, NO_STICKY_MODIFIERS, type StickyModifiers, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
@@ -149,12 +149,19 @@ export function PaneTerminal({
   // what the socket handlers read mid-stream: stdin, onData and the composer's submit
   const heldRef = useRef(false);
   const setHeld = useCallback((next: boolean) => { heldRef.current = next; setHeldState(next); }, []);
-  // one-shot Control from the key bar: the ref is what onData reads, the state is what the bar shows
+  // The ref is what input handlers read; the state is what the key bar shows.
   const composingRef = useRef(false);
   const [composing, setComposingState] = useState(false);
   const setComposing = useCallback((active: boolean) => { composingRef.current = active; setComposingState(active); }, []);
-  const ctrlRef = useRef(false);
-  const [ctrlArmed, setCtrlArmed] = useState(false);
+  const barKeyRef = useRef<KeyBarKey | null>(null);
+  const modifiersRef = useRef<StickyModifiers>(NO_STICKY_MODIFIERS);
+  const [modifiers, setModifiers] = useState<StickyModifiers>(NO_STICKY_MODIFIERS);
+  const clearModifiers = useCallback(() => {
+    modifiersRef.current = NO_STICKY_MODIFIERS;
+    setModifiers(NO_STICKY_MODIFIERS);
+    barKeyRef.current = null;
+  }, []);
+  useLayoutEffect(clearModifiers, [paneId, chatView, clearModifiers]);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
@@ -310,8 +317,31 @@ export function PaneTerminal({
     // physical key names the letter then; a Latin layout keeps its own (Dvorak's C is not KeyC).
     // An app shortcut is the app's alone: xterm would still type it, and Ctrl+Shift+↓ reached the
     // pane it had just switched to as ESC[1;6B.
+    let typedChord: string | null = null;
     term.attachCustomKeyEventHandler((event) => {
       if (isAppShortcut(event, shortcutSettings.current)) return false;
+      if (hasModifiers(modifiersRef.current) && !term.options.disableStdin && !composingRef.current
+          && !event.isComposing && event.keyCode !== 229 && !event.metaKey) {
+        const chord = terminalChord(event.key, {
+          ctrl: modifiersRef.current.ctrl || event.ctrlKey,
+          alt: modifiersRef.current.alt || event.altKey,
+          shift: modifiersRef.current.shift || event.shiftKey,
+        });
+        // A real clipboard shortcut still belongs to the browser. Soft Ctrl+V
+        // (the held button plus a typed v) is a terminal chord, not a paste.
+        const clipboard = event.ctrlKey && !event.altKey && /^(c|v)$/i.test(event.key)
+          && (event.key.toLowerCase() === "v" || term.hasSelection());
+        if (chord !== null && !clipboard) {
+          if (event.type === "keydown") {
+            event.preventDefault();
+            typedChord = chord;
+            // Go through the same readiness/role/secret checks as other input.
+            term.input(event.key);
+            typedChord = null;
+          }
+          return false;
+        }
+      }
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
       const typed = event.key.toLowerCase();
       const key = /^[a-z]$/.test(typed) ? typed : /^Key([A-Z])$/.exec(event.code)?.[1]?.toLowerCase() ?? typed;
@@ -738,6 +768,7 @@ export function PaneTerminal({
       setConnected(socket.connected);
     });
     const offDisconnect = socket.onDisconnect(() => {
+      clearModifiers();
       outputGeneration++;
       setOutputReady(false);
       setInputReady(false);
@@ -765,18 +796,32 @@ export function PaneTerminal({
         && event.key === "Backspace" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
         && !event.isComposing && event.keyCode !== 229;
     });
+    // A paste is text, even when it happens to contain just one letter. xterm
+    // handles the DOM paste synchronously after this capture-phase listener.
+    let pasting = false;
+    const onPaste = () => { pasting = true; queueMicrotask(() => { pasting = false; }); };
+    host.addEventListener("paste", onPaste, true);
     const onData = term.onData((data) => {
+      const barKey = barKeyRef.current;
+      barKeyRef.current = null;
+      const physicalChord = typedChord;
+      typedChord = null;
       if (shiftEnter && data === "\r") data = "\x1b\r";
       shiftEnter = false;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
       if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
-      let input = data;
-      if (ctrlRef.current && isPrintable(data)) {
-        ctrlRef.current = false;
-        setCtrlArmed(false);
-        input = controlCode(data) ?? data;
+      const input = data;
+      const key = barKey ?? keyFromData(data);
+      const chord = !pasting && !composingRef.current && barKey !== "ctrl-c" && hasModifiers(modifiersRef.current)
+        ? physicalChord ?? (key !== null ? terminalChord(key, modifiersRef.current) : null) : null;
+      // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
+      // in the keyboard protocol requested by the program in this pane.
+      if (chord !== null) {
+        socket.sendKeys(current, [chord]);
+        // Shortcuts are never retained as offline text or replayed later.
+        return;
       }
       if (socket.sendInput(current, input)) return;
       // A closed socket, an attachment still opening, or a failed synchronous send:
@@ -962,6 +1007,7 @@ export function PaneTerminal({
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
       onData.dispose();
+      host.removeEventListener("paste", onPaste, true);
       host.removeEventListener("paste", onFilePaste, { capture: true });
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
@@ -1098,16 +1144,18 @@ export function PaneTerminal({
     const term = termRef.current;
     if (!term) return;
     if (composingRef.current) return;
+    barKeyRef.current = key;
     term.input(keySequence(key, term.modes.applicationCursorKeysMode));
+    barKeyRef.current = null;
     // with the input line, the keyboard belongs to it: a key tap must not move it to the grid
     if (!inputLineRef.current) term.focus();
   }, []);
 
-  const toggleCtrl = useCallback(() => {
+  const toggleModifier = useCallback((modifier: keyof StickyModifiers) => {
     if (composingRef.current) return;
-    const armed = !ctrlRef.current;
-    ctrlRef.current = armed;
-    setCtrlArmed(armed);
+    const next = { ...modifiersRef.current, [modifier]: !modifiersRef.current[modifier] };
+    modifiersRef.current = next;
+    setModifiers(next);
     if (!inputLineRef.current) termRef.current?.focus();
   }, []);
 
@@ -1174,7 +1222,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!socket || pane === null || !socket.connected) return false;
-    const sent = socket.sendInput(pane, "\r");
+    const sent = hasModifiers(modifiersRef.current)
+      ? socket.sendKeys(pane, [terminalChord("Enter", modifiersRef.current)!]) : socket.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
     return sent;
   }, []);
@@ -1443,7 +1492,8 @@ export function PaneTerminal({
         />
       )}
       {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
-      {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing} onKey={pressKey} ctrlArmed={ctrlArmed} onToggleCtrl={toggleCtrl}
+      {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
+        modifiers={modifiers} onToggleModifier={toggleModifier}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );
