@@ -658,7 +658,7 @@ export const KO: Record<string, string> = {
   "Show the whole output ({size} characters)": "전체 출력 보기 ({size}자)",
   "Loading the whole output…": "전체 출력을 불러오는 중…",
   "Couldn't load the whole output — retry": "전체 출력을 불러오지 못했습니다 — 다시 시도",
-  "Type for the terminal…": "터미널에 보낼 내용…",
+  "Keyboard button → direct TUI input. Use this line for paste, voice or swipe typing.": "키보드 버튼 → TUI에 직접 입력. 붙여넣기, 음성 또는 스와이프 입력은 이 입력줄을 사용하세요.",
   "Terminal input line": "터미널 입력줄",
   "Press Enter in the terminal": "터미널에서 Enter 누르기",
   "Send to the terminal": "터미널로 보내기",

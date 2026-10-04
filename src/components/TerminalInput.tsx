@@ -122,7 +122,7 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
         maxLength={TERMINAL_LINE_LIMIT}
         onCompositionStart={() => { composing.current = true; onComposing?.(true); }}
         onCompositionEnd={() => { composing.current = false; onComposing?.(false); }}
-        placeholder={t("Type for the terminal…")}
+        placeholder={t("Keyboard button → direct TUI input. Use this line for paste, voice or swipe typing.")}
         aria-label={t("Terminal input line")}
         enterKeyHint="send"
         autoCapitalize="off"

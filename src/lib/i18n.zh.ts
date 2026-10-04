@@ -662,7 +662,7 @@ export const ZH: Record<string, string> = {
   "Show the whole output ({size} characters)": "显示完整输出（{size} 个字符）",
   "Loading the whole output…": "正在加载完整输出…",
   "Couldn't load the whole output — retry": "无法加载完整输出。重试",
-  "Type for the terminal…": "输入要发送到终端的内容…",
+  "Keyboard button → direct TUI input. Use this line for paste, voice or swipe typing.": "键盘按钮 → 直接输入 TUI。粘贴、语音或滑动输入请使用此输入栏。",
   "Terminal input line": "终端输入行",
   "Press Enter in the terminal": "在终端中按 Enter",
   "Send to the terminal": "发送到终端",
