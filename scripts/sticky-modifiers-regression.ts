@@ -181,8 +181,11 @@ try {
     const plainBefore = frames.length;
     await until(async () => !(await ctrl.isDisabled()), "typing ready after settings");
     await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
+    await settings.waitFor({ state: "hidden" });
     await input.focus();
-    await page.keyboard.insertText("z");
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await input.focus();
+    await input.press("z");
     await until(() => frames.length > plainBefore, "typing after hiding Alt");
     assert.equal(frames.at(-1).type, "input");
     assert.equal(frames.at(-1).text, "z");
