@@ -5,7 +5,7 @@ Bun backend: HTTP API + WebSocket fan-out over herdr's unix-socket API, plus the
 ## ANTI-PATTERNS
 - Never let an attachment outlive its last client. Cleanup paths: `detach`/`close` for members (`detach()` closes on an empty client set), `releaseUnclaimed` for an attach cancelled mid-creation, `onExit` for a pty that died, `stop()` for everything.
 - Never `attachments.set` outside `spawnAttachment`, and never await between that `set` and `new PtySession(...)`: the record's `pty` is a placeholder until then.
-- Never add the client to `attachment.clients` before checking `client.data.attached` still holds the pane after the await.
+- Never add the client to `attachment.clients` before checking `client.data.attached` still holds the same claim after the await. Detach followed by reattach installs a new claim.
 - Always resize the pty from the geometry of an INTERACT client's attach (`attach` handler calls `resizePty` when `mode === "interact"`); an observe attach never resizes. Never spawn `herdr terminal attach` without cols/rows.
 - Answer in-band: handler failures are sent as `{type:"error"}` frames. The only deliberate closes are 4008 (output stall/overflow), 1008 (device revoked) and 1012 (relay/PC gone).
 - Keep `herdr/` free of HTTP concepts — it speaks only herdr's socket protocol; HTTP shaping belongs in index.ts.

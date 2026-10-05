@@ -90,3 +90,54 @@ it("drops a queued chord after its sender detaches while another client keeps th
 it("drops a queued chord after its original attachment is replaced", () => queuedKeys("replace"), 20_000);
 it("drops a queued chord after its sender detaches and rejoins the same attachment", () => queuedKeys("reattach"), 20_000);
 it("preserves a queued chord when the sender refreshes its attach without detaching", () => queuedKeys("refresh"), 20_000);
+
+it("cancels a pending attach continuation when detach and reattach installs a new claim", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-attach-claim-"));
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
+  let workspace: string | undefined;
+  let socket: WebSocket | undefined;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let lookupPending = false;
+  const original = herdr.sessionSnapshot;
+  const spy = spyOn(herdr, "sessionSnapshot").mockImplementation(async (...args) => {
+    if (new Error().stack?.includes("terminalInfoFor")) {
+      lookupPending = true;
+      await gate;
+    }
+    return original(...args);
+  });
+  const until = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 5000;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error("Attach claim contract deadline");
+      await Bun.sleep(20);
+    }
+  };
+  try {
+    const made = await herdr.workspaceCreate({ cwd: root, label: "herdr-web-ui-test-attach-claim" });
+    workspace = made.workspace.workspace_id;
+    const pane = made.root_pane.pane_id;
+    const seen: any[] = [];
+    socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    socket.addEventListener("message", (event) => seen.push(JSON.parse(String(event.data))));
+    await until(() => seen.some((frame) => frame.type === "snapshot"));
+    const send = (message: unknown) => socket!.send(JSON.stringify(message));
+    send({ type: "attach", pane_id: pane, cols: 40, rows: 20, keep_size: true });
+    await until(() => lookupPending);
+    send({ type: "detach", pane_id: pane });
+    send({ type: "attach", pane_id: pane, cols: 73, rows: 29 });
+    send({ type: "role", mode: "interact" });
+    await until(() => seen.some((frame) => frame.type === "role-ack"));
+    release();
+    await until(() => seen.some((frame) => frame.type === "input-ready"));
+    expect(seen.filter((frame) => frame.type === "pane-geometry").map(({ cols, rows }) => ({ cols, rows }))).toEqual([{ cols: 73, rows: 29 }]);
+  } finally {
+    release();
+    socket?.close();
+    server.stop();
+    spy.mockRestore();
+    if (workspace) await herdr.workspaceClose(workspace).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 20_000);

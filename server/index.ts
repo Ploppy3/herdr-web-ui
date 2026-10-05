@@ -1711,16 +1711,17 @@ export function createServer(
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
-              if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, {});
+              const claim = client.data.attached.get(message.pane_id) ?? {};
+              if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, claim);
               let attachment: PaneAttachment;
               try {
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
                 attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
               } catch (error) {
-                client.data.attached.delete(message.pane_id);
+                if (client.data.attached.get(message.pane_id) === claim) client.data.attached.delete(message.pane_id);
                 throw error;
               }
-              if (!client.data.attached.has(message.pane_id)) {
+              if (client.data.attached.get(message.pane_id) !== claim) {
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
