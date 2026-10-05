@@ -5,8 +5,20 @@
  * differently from a terminal are below them.
  */
 
-/** Keys a soft keyboard has no room for; ctrl-c is a chord, the rest are DOM key names. */
-export type KeyBarKey = "Escape" | "Tab" | "Enter" | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "ctrl-c";
+/** Keys a soft keyboard has no room for; ctrl-* are chords, pipe/tilde/slash the characters, the rest DOM key names. */
+export type KeyBarKey =
+  | "Escape" | "Tab" | "Enter" | "BackTab" | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight"
+  | "Home" | "End" | "PageUp" | "PageDown" | "ctrl-c" | "ctrl-d" | "ctrl-z" | "pipe" | "tilde" | "slash";
+
+/** The key bar's optional keys, as Settings lists them; a pair is one choice. Esc, Tab, Ctrl, the arrows and ^C are always there. */
+export type KeyBarExtra = "alt" | "shift-tab" | "home-end" | "page-up-down" | "ctrl-d" | "ctrl-z" | "pipe" | "tilde" | "slash";
+export const KEY_BAR_EXTRAS: readonly KeyBarExtra[] = ["alt", "shift-tab", "home-end", "page-up-down", "ctrl-d", "ctrl-z", "pipe", "tilde", "slash"];
+
+/** The chosen optional keys: known ones only, each once, in KEY_BAR_EXTRAS order; anything but a list keeps the default. */
+export function sanitizeKeyBarExtras(value: unknown, fallback: readonly KeyBarExtra[]): KeyBarExtra[] {
+  if (!Array.isArray(value)) return [...fallback];
+  return KEY_BAR_EXTRAS.filter((extra) => value.includes(extra));
+}
 
 export interface StickyModifiers { ctrl: boolean; alt: boolean; shift: boolean }
 export const NO_STICKY_MODIFIERS: StickyModifiers = { ctrl: false, alt: false, shift: false };
@@ -20,15 +32,31 @@ export function hasModifiers(modifiers: StickyModifiers): boolean {
  * Keep the typed symbol: the phone's layout already chose it; don't assume US Shift.
  */
 export function terminalChord(key: string, modifiers: StickyModifiers): string | null {
+  if (["Home", "End", "PageUp", "PageDown"].includes(key)) return null;
+  if (key === "BackTab") { key = "Tab"; modifiers = { ...modifiers, shift: true }; }
   const names: Record<string, string> = {
     ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
     Enter: "enter", Tab: "tab", Escape: "esc", Backspace: "backspace",
+    Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown",
+    pipe: "|", tilde: "~", slash: "/",
     " ": "space", "+": "plus",
   };
   const name = names[key] ?? (/^F(?:[1-9]|1[0-2])$/.test(key) ? key.toLowerCase()
     : [...key].length === 1 && key.codePointAt(0)! >= 0x20 && key !== "\x7f" ? key : null);
   if (name === null) return null;
   return [modifiers.ctrl && "ctrl", modifiers.alt && "alt", modifiers.shift && "shift", name].filter(Boolean).join("+");
+}
+
+/** Herdr's send_keys parser lacks these names; its attach input parser accepts CSI navigation. */
+export function navigationSequence(key: string, modifiers: StickyModifiers): string | null {
+  const parameter = 1 + (modifiers.shift ? 1 : 0) + (modifiers.alt ? 2 : 0) + (modifiers.ctrl ? 4 : 0);
+  switch (key) {
+    case "Home": return `\x1b[1;${parameter}H`;
+    case "End": return `\x1b[1;${parameter}F`;
+    case "PageUp": return `\x1b[5;${parameter}~`;
+    case "PageDown": return `\x1b[6;${parameter}~`;
+    default: return null;
+  }
 }
 
 /** Soft keyboards often emit input events without a DOM keydown. Only individual
@@ -60,7 +88,7 @@ export function controlCode(ch: string): string | null {
  * while a full-screen program has application cursor keys on, CSI otherwise.
  */
 export function keySequence(key: KeyBarKey, applicationCursorKeys: boolean): string {
-  const cursor = (final: "A" | "B" | "C" | "D"): string => (applicationCursorKeys ? "\u001bO" : "\u001b[") + final;
+  const cursor = (final: "A" | "B" | "C" | "D" | "H" | "F"): string => (applicationCursorKeys ? "\u001bO" : "\u001b[") + final;
   switch (key) {
     case "Escape":
       return "\u001b";
@@ -68,8 +96,28 @@ export function keySequence(key: KeyBarKey, applicationCursorKeys: boolean): str
       return "\t";
     case "Enter":
       return "\r";
+    case "BackTab":
+      return "\u001b[Z";
     case "ctrl-c":
       return "\u0003";
+    case "ctrl-d":
+      return "\u0004";
+    case "ctrl-z":
+      return "\u001a";
+    case "pipe":
+      return "|";
+    case "tilde":
+      return "~";
+    case "slash":
+      return "/";
+    case "Home":
+      return cursor("H");
+    case "End":
+      return cursor("F");
+    case "PageUp":
+      return "\u001b[5~";
+    case "PageDown":
+      return "\u001b[6~";
     case "ArrowUp":
       return cursor("A");
     case "ArrowDown":
@@ -79,6 +127,21 @@ export function keySequence(key: KeyBarKey, applicationCursorKeys: boolean): str
     case "ArrowLeft":
       return cursor("D");
   }
+}
+
+/**
+ * One keystroke under the key bar's one-shot Alt, as xterm sends it with metaSendsEscape: ESC
+ * before a single character (Alt+b, Alt+Backspace, Alt+Enter), and the Alt modifier in a cursor
+ * or editing key's sequence (Alt+Left is CSI 1;3D, Alt+PageUp CSI 5;3~). Null for anything else,
+ * such as a paste or a report the terminal answers with, which the armed Alt lets through as it is.
+ */
+export function altSequence(data: string): string | null {
+  if ([...data].length === 1) return "\u001b" + data;
+  const cursor = /^\u001b[[O]([A-DHF])$/.exec(data);
+  if (cursor) return `\u001b[1;3${cursor[1]}`;
+  const editing = /^\u001b\[(\d+)~$/.exec(data);
+  if (editing) return `\u001b[${editing[1]};3~`;
+  return null;
 }
 
 /**

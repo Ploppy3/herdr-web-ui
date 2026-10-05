@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket } from "../lib/ws.ts";
-import { hasModifiers, terminalChord, keyFromData, keySequence, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers, type KeyBarKey } from "../lib/keys.ts";
+import { hasModifiers, terminalChord, navigationSequence, keyFromData, keySequence, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -189,6 +189,13 @@ export function PaneTerminal({
   // to raise, and the pane it picks takes the typing at once.
   const coarseRef = useRef(coarse); coarseRef.current = coarse;
   const { settings, update: updateSettings } = useSettings();
+  const altAvailable = settings.keyBarExtras.includes("alt");
+  useLayoutEffect(() => {
+    if (!altAvailable && modifiersRef.current.alt) {
+      modifiersRef.current = { ...modifiersRef.current, alt: false };
+      setModifiers(modifiersRef.current);
+    }
+  }, [altAvailable]);
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
@@ -395,11 +402,17 @@ export function PaneTerminal({
       if (isAppShortcut(event, shortcutSettings.current)) return false;
       if (hasModifiers(modifiersRef.current) && !term.options.disableStdin && !composingRef.current
           && !event.isComposing && event.keyCode !== 229 && !event.metaKey) {
-        const chord = terminalChord(event.key, {
+        const combined = {
           ctrl: modifiersRef.current.ctrl || event.ctrlKey,
           alt: modifiersRef.current.alt || event.altKey,
           shift: modifiersRef.current.shift || event.shiftKey,
-        });
+        };
+        const chord = terminalChord(event.key, combined);
+        const navigation = navigationSequence(event.key, combined);
+        if (navigation !== null) {
+          if (event.type === "keydown") { event.preventDefault(); term.input(navigation); }
+          return false;
+        }
         // A real clipboard shortcut still belongs to the browser. Soft Ctrl+V
         // (the held button plus a typed v) is a terminal chord, not a paste.
         const clipboard = event.ctrlKey && !event.altKey && /^(c|v)$/i.test(event.key)
@@ -1265,7 +1278,8 @@ export function PaneTerminal({
     if (!term) return;
     if (composingRef.current) return;
     barKeyRef.current = key;
-    term.input(keySequence(key, term.modes.applicationCursorKeysMode));
+    term.input((hasModifiers(modifiersRef.current) ? navigationSequence(key, modifiersRef.current) : null)
+      ?? keySequence(key, term.modes.applicationCursorKeysMode));
     barKeyRef.current = null;
     // with the input line, the keyboard belongs to it: a key tap must not move it to the grid
     if (!inputLineRef.current) term.focus();
@@ -1278,6 +1292,7 @@ export function PaneTerminal({
     setModifiers(next);
     if (!inputLineRef.current) termRef.current?.focus();
   }, []);
+
 
   // ask the server for the role change; the role-ack handler applies the local
   // consequences (stdin gate, grid adoption or reclamation) once it is confirmed.
@@ -1740,7 +1755,7 @@ export function PaneTerminal({
       )}
       {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
-        modifiers={modifiers} onToggleModifier={toggleModifier}
+        modifiers={modifiers} onToggleModifier={toggleModifier} extras={settings.keyBarExtras}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
   );

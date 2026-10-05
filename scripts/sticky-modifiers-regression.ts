@@ -34,7 +34,7 @@ try {
     await until(async () => (await paneRead({ paneId: pane, source: "visible" })).text.includes(`PROBE READY ${mode}`), "raw probe ready");
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     await context.addInitScript(({ pane }) => {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "direct" }));
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "direct", keyBarExtras: ["alt", "shift-tab", "home-end", "page-up-down", "ctrl-d", "ctrl-z", "pipe", "tilde", "slash"] }));
       localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
     }, { pane });
     const page = await context.newPage();
@@ -44,6 +44,11 @@ try {
     await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
       ws = socket;
       const remote = socket.connectToServer();
+      remote.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === "error") console.log("terminal error", message);
+        socket.send(raw);
+      });
       socket.onMessage((raw) => { frames.push(JSON.parse(String(raw))); remote.send(raw); });
     });
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
@@ -91,6 +96,17 @@ try {
       assert.equal(await ctrl.getAttribute("aria-pressed"), String(!!(mask & 4)));
     }
     await held(7);
+    for (const [key, name] of [["Home", "home"], ["End", "end"], ["PageUp", "pageup"], ["PageDown", "pagedown"], ["BackTab", "tab"], ["pipe", "|"], ["tilde", "~"], ["slash", "/"]]) {
+      const before = read();
+      const frameCount = frames.length;
+      await page.locator(`[data-key="${key}"]`).tap();
+      await until(() => frames.length > frameCount, "optional modified key frame");
+      if (["Home", "End", "PageUp", "PageDown"].includes(key!)) {
+        assert.equal(frames.at(-1).type, "input");
+        assert.equal(frames.at(-1).text, ({ Home: "\x1b[1;8H", End: "\x1b[1;8F", PageUp: "\x1b[5;8~", PageDown: "\x1b[6;8~" } as Record<string, string>)[key!]);
+      } else assert.deepEqual(frames.at(-1).keys, [`ctrl+alt+shift+${name}`]);
+      await until(() => read().length > before.length, `optional modified ${key} received by PTY`);
+    }
     if (evidence) await page.screenshot({ path: join(evidence, `sticky-${mode}-phone.png`) });
     // Dropped text is also paste, even one character with every modifier held.
     const dropBefore = read();
@@ -156,6 +172,25 @@ try {
     await until(() => read().length > hardwareBefore.length, "hardware/touch combination received");
     assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
     if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
+    // Removing the optional Alt button must not leave an invisible held modifier.
+    await page.keyboard.press("Control+Shift+Comma");
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    assert.equal(await page.locator('[data-key="Alt"]').count(), 0);
+    const plainBefore = frames.length;
+    await until(async () => !(await ctrl.isDisabled()), "typing ready after settings");
+    await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
+    await input.focus();
+    await page.keyboard.insertText("z");
+    await until(() => frames.length > plainBefore, "typing after hiding Alt");
+    assert.equal(frames.at(-1).type, "input");
+    assert.equal(frames.at(-1).text, "z");
+    await page.keyboard.press("Control+Shift+Comma");
+    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    previousMask = 0;
+    assert.equal(await page.locator('[data-key="Alt"]').getAttribute("aria-pressed"), "false");
     // Leaving the terminal lens clears held state on the same pane.
     await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).tap();
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).tap();

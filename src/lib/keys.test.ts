@@ -1,7 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, terminalChord, keyFromData } from "./keys.ts";
+import { altSequence, controlCode, ctrlEnterSequence, isPrintable, keySequence, modifyOtherKeysLevel, sanitizeKeyBarExtras, navigationSequence, terminalChord, keyFromData } from "./keys.ts";
 
 describe("terminalChord", () => {
+  it("combines held modifiers with optional navigation and symbol keys", () => {
+    const held = { ctrl: true, alt: true, shift: true };
+    for (const [key, name] of [["pipe", "|"], ["tilde", "~"], ["slash", "/"], ["BackTab", "tab"]]) {
+      expect(terminalChord(key!, held)).toBe(`ctrl+alt+shift+${name}`);
+    }
+    for (const [key, sequence] of [["Home", "\x1b[1;8H"], ["End", "\x1b[1;8F"], ["PageUp", "\x1b[5;8~"], ["PageDown", "\x1b[6;8~"]]) {
+      expect(terminalChord(key!, held)).toBeNull();
+      expect(navigationSequence(key!, held)).toBe(sequence!);
+    }
+    expect(terminalChord("BackTab", { ctrl: true, alt: false, shift: false })).toBe("ctrl+shift+tab");
+  });
   it("preserves every combination for cursor keys, letters and symbols", () => {
     for (let mask = 0; mask < 8; mask++) {
       const modifiers = { ctrl: !!(mask & 4), alt: !!(mask & 2), shift: !!(mask & 1) };
@@ -77,6 +88,50 @@ describe("keySequence", () => {
     expect(keySequence("ArrowLeft", false)).toBe("\u001b[D");
     expect(keySequence("ArrowUp", true)).toBe("\u001bOA");
     expect(keySequence("ArrowLeft", true)).toBe("\u001bOD");
+  });
+
+  it("sends the optional keys as xterm does: Home/End follow DECCKM, the rest are fixed", () => {
+    expect(keySequence("BackTab", false)).toBe("\u001b[Z");
+    expect(keySequence("Home", false)).toBe("\u001b[H");
+    expect(keySequence("End", false)).toBe("\u001b[F");
+    expect(keySequence("Home", true)).toBe("\u001bOH");
+    expect(keySequence("End", true)).toBe("\u001bOF");
+    expect(keySequence("PageUp", true)).toBe("\u001b[5~");
+    expect(keySequence("PageDown", false)).toBe("\u001b[6~");
+    expect(keySequence("ctrl-d", false)).toBe("\u0004");
+    expect(keySequence("ctrl-z", false)).toBe("\u001a");
+    expect([keySequence("pipe", false), keySequence("tilde", false), keySequence("slash", false)]).toEqual(["|", "~", "/"]);
+  });
+});
+
+describe("altSequence", () => {
+  it("puts ESC before one character, control characters and IME syllables included", () => {
+    expect(altSequence("b")).toBe("\u001bb");
+    expect(altSequence("\u007f")).toBe("\u001b\u007f");
+    expect(altSequence("\r")).toBe("\u001b\r");
+    expect(altSequence("\u0003")).toBe("\u001b\u0003");
+    expect(altSequence("한")).toBe("\u001b한");
+    expect(altSequence("😀")).toBe("\u001b😀");
+  });
+
+  it("adds the Alt modifier to cursor and editing keys in either cursor mode", () => {
+    expect(altSequence("\u001b[D")).toBe("\u001b[1;3D");
+    expect(altSequence("\u001bOA")).toBe("\u001b[1;3A");
+    expect(altSequence("\u001bOH")).toBe("\u001b[1;3H");
+    expect(altSequence("\u001b[5~")).toBe("\u001b[5;3~");
+  });
+
+  it("leaves pastes and terminal reports alone, so they do not use up the armed Alt", () => {
+    for (const data of ["ab", "", "\u001b[12;5R", "\u001b[I", "\u001b[<0;3;4M", "\u001b[200~x\u001b[201~", "\u001b[Z"]) expect(altSequence(data)).toBeNull();
+  });
+});
+
+describe("sanitizeKeyBarExtras", () => {
+  it("keeps known keys once, in the bar's order, and the default for a missing list", () => {
+    expect(sanitizeKeyBarExtras(["slash", "alt", "nope", "alt", 3], ["alt"])).toEqual(["alt", "slash"]);
+    expect(sanitizeKeyBarExtras([], ["alt"])).toEqual([]);
+    expect(sanitizeKeyBarExtras(undefined, ["alt"])).toEqual(["alt"]);
+    expect(sanitizeKeyBarExtras("alt", ["alt"])).toEqual(["alt"]);
   });
 });
 
