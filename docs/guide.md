@@ -215,7 +215,7 @@ Only devices in your tailnet can open that address, and only yours get in withou
 
 1. Open the address.
 2. Install the app: in Safari, choose **Share → Add to Home Screen**; in Chrome, choose **Install app**.
-3. Tap the bell to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
+3. Open the **⋯** menu at the top right and tap **Alerts** to turn on alerts for that device. iPhone needs iOS 16.4+ and the home-screen app.
 
 To check alerts later, choose **Settings → Alerts → Send test**. The result tells you
 whether the test was sent or failed; a missing subscription offers **Turn alerts on again**.
@@ -457,6 +457,12 @@ No. The server reads session files and terminals locally, and serves them only t
 <summary><b>An agent is missing from the chat, or shows only terminal text.</b></summary>
 
 The chat needs the agent's own session file. Check that the agent runs in a herdr pane on this PC (or on an added PC) and has already written its first message. Agents without a native reader always get the terminal-text view, and the Terminal view always works.
+</details>
+
+<details>
+<summary><b>The colors look too dark, or the light theme looks dark, in Samsung Internet.</b></summary>
+
+Samsung Internet has a forced dark mode that repaints every page, including one that brings its own light and dark themes, as this app does. A light theme comes out dark, and a dark one is darkened a second time: similar shades run together, and the bars of the plan meters can look empty. Turn off **Force dark mode for web content** (**웹 콘텐츠에 어두운 화면 모드 강제 적용**) in Samsung Internet's settings, or open the app in Chrome. Reported on a Galaxy Tab S7+ ([#451](https://github.com/devswha/herdr-web-ui/issues/451)).
 </details>
 
 <details>
