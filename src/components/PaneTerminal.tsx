@@ -359,8 +359,25 @@ export function PaneTerminal({
     term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
-    const compositionStart = () => setComposing(true);
-    const compositionEnd = () => setComposing(false);
+    let compositionEndTimer: number | null = null;
+    let compositionCommitPending = false;
+    const compositionStart = () => {
+      if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
+      compositionEndTimer = null;
+      compositionCommitPending = false;
+      setComposing(true);
+    };
+    const compositionEnd = () => {
+      if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
+      // xterm's textarea listener queues its commit before this bubbling host listener.
+      // Keep that commit on the text path; a new composition cancels this clear.
+      compositionCommitPending = true;
+      setComposing(false);
+      compositionEndTimer = window.setTimeout(() => {
+        compositionEndTimer = null;
+        compositionCommitPending = false;
+      }, 0);
+    };
     host.addEventListener("compositionstart", compositionStart);
     host.addEventListener("compositionend", compositionEnd);
     const stopGlyphs = adjustTerminalGlyphs(term);
@@ -910,7 +927,7 @@ export function PaneTerminal({
       if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
       const input = data;
       const key = barKey ?? keyFromData(data);
-      const chord = !pasting && !composingRef.current && barKey !== "ctrl-c" && hasModifiers(modifiersRef.current)
+      const chord = !pasting && !composingRef.current && !compositionCommitPending && barKey !== "ctrl-c" && hasModifiers(modifiersRef.current)
         ? physicalChord ?? (key !== null ? terminalChord(key, modifiersRef.current) : null) : null;
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
@@ -1120,6 +1137,7 @@ export function PaneTerminal({
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
+      if (compositionEndTimer !== null) window.clearTimeout(compositionEndTimer);
       term.dispose();
       termRef.current = null;
       socketRef.current = null;

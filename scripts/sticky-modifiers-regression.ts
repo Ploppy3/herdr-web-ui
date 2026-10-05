@@ -115,18 +115,38 @@ try {
     await until(() => read().length > pasteBefore.length, "paste received");
     assert.equal(frames.slice(pasteFrames).some((frame) => frame.type === "keys"), false);
     assert.equal(Buffer.from(read().slice(pasteBefore.length), "hex").toString(), "x");
-    // A multi-character IME commit stays text and appears once.
-    const imeBefore = read();
+    // Deferred IME commits are text, including one character with every modifier held.
+    for (const text of ["한", "한글"]) {
+      const imeBefore = read();
+      const imeFrames = frames.length;
+      await input.evaluate((element, text) => {
+        const box = element as HTMLTextAreaElement;
+        box.value = "";
+        box.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+        box.value = text;
+        box.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data: text }));
+        box.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: text }));
+      }, text);
+      await until(() => read().length > imeBefore.length, "IME commit received");
+      assert.equal(frames.slice(imeFrames).some((frame) => frame.type === "keys"), false, "IME commit bypasses held modifiers");
+      assert.equal(Buffer.from(read().slice(imeBefore.length), "hex").toString(), text);
+    }
+    // A second composition starts before the first deferred commit runs.
+    const burstBefore = read();
+    const burstFrames = frames.length;
     await input.evaluate((element) => {
       const box = element as HTMLTextAreaElement;
       box.value = "";
-      box.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
-      box.value = "한글";
-      box.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data: "한글" }));
-      box.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "한글" }));
+      for (const text of ["한", "글"]) {
+        box.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+        box.value += text;
+        box.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data: text }));
+        box.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: text }));
+      }
     });
-    await until(() => read().length > imeBefore.length, "IME commit received");
-    assert.equal(Buffer.from(read().slice(imeBefore.length), "hex").toString(), "한글");
+    await until(() => Buffer.from(read().slice(burstBefore.length), "hex").toString() === "한글", "IME burst received");
+    assert.equal(frames.slice(burstFrames).some((frame) => frame.type === "keys"), false, "consecutive IME commits bypass held modifiers");
+    assert.equal(Buffer.from(read().slice(burstBefore.length), "hex").toString(), "한글");
     // Hardware modifiers combine with held touch modifiers as well.
     await held(2);
     await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
