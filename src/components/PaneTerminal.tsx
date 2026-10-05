@@ -801,6 +801,12 @@ export function PaneTerminal({
     let pasting = false;
     const onPaste = () => { pasting = true; queueMicrotask(() => { pasting = false; }); };
     host.addEventListener("paste", onPaste, true);
+    // File paths and dropped text use xterm's programmatic paste without a DOM paste event.
+    const pasteText = (text: string): void => {
+      const previous = pasting;
+      pasting = true;
+      try { term.paste(text); } finally { pasting = previous; }
+    };
     // xterm ignores Cmd+arrows. Handle them on the bubble phase, after its textarea
     // keydown listener drains pending IME text, so movement never precedes that text.
     const onCommandArrow = (event: KeyboardEvent): void => {
@@ -863,7 +869,7 @@ export function PaneTerminal({
         for (const file of files) paths.push(await uploadFileRef.current(pane, file));
         // An upload can finish after the user has switched panes or lost input access.
         if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
-        term.paste(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
+        pasteText(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
         term.focus();
       } catch (error) {
         if (paneRef.current === pane) noteClipboard(error instanceof Error ? error.message : String(error));
@@ -895,7 +901,7 @@ export function PaneTerminal({
       }
       const text = event.dataTransfer.getData("text/plain");
       if (text) {
-        term.paste(text);
+        pasteText(text);
         term.focus();
       }
     };

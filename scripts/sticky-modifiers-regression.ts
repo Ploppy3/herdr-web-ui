@@ -49,6 +49,8 @@ try {
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
     const ctrl = page.locator('[data-key="Control"]');
     await until(async () => !(await ctrl.isDisabled()), "terminal input ready");
+    // Herdr's screen stream enables bracketed paste; exercise xterm with it disabled too.
+    ws!.send(JSON.stringify({ type: "pty-data", pane_id: pane, data: "\x1b[?2004l" }));
     const input = page.locator(".xterm-helper-textarea");
     await input.focus();
     let previousMask = 0;
@@ -90,6 +92,18 @@ try {
     }
     await held(7);
     if (evidence) await page.screenshot({ path: join(evidence, `sticky-${mode}-phone.png`) });
+    // Dropped text is also paste, even one character with every modifier held.
+    const dropBefore = read();
+    const dropFrames = frames.length;
+    await page.locator(".xterm").evaluate((element) => {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", "z");
+      element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    });
+    await until(() => frames.length > dropFrames && read().length > dropBefore.length, "single-character drop received");
+    assert.equal(frames[dropFrames].type, "input", "drop bypasses held modifiers");
+    assert.equal(frames[dropFrames].text, "z");
+    assert.equal(Buffer.from(read().slice(dropBefore.length).trim().split(/\s+/).join(""), "hex").toString(), "z");
     // Paste is text, including a single character; it must not become a shortcut.
     const pasteBefore = read();
     const pasteFrames = frames.length;
