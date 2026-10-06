@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Changed
+- Every agent's chat uses one compact Send/Stop button on desktop and phones. Sending during
+  work schedules a next-turn message; its explicit ↑ Send now action delivers it immediately,
+  or X discards it. The bridge claims each message once and pauses automatic delivery when
+  the connection changes. Chat status words stay hidden, and desktop plan usage shows the
+  five-hour limit first with weekly fallback; phones omit the compact quota.
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards
   already did: with a mouse it is typed at the transcript's size, and on a touch screen it
   grows with a size above 16px (it stays at 16px or more, so iOS still does not zoom).
