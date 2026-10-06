@@ -52,6 +52,8 @@ try {
       socket.onMessage((raw) => { frames.push(JSON.parse(String(raw))); remote.send(raw); });
     });
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
+    const settingsShortcut = await page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent))
+      ? "Meta+Shift+Comma" : "Control+Shift+Comma";
     const ctrl = page.locator('[data-key="Control"]');
     await until(async () => !(await ctrl.isDisabled()), "terminal input ready");
     // Herdr's screen stream enables bracketed paste; exercise xterm with it disabled too.
@@ -173,15 +175,18 @@ try {
     assert.deepEqual(frames.at(-1).keys, ["ctrl+alt+shift+d"]);
     if (mode === "kitty") assert.equal(Buffer.from(read().slice(hardwareBefore.length), "hex").toString(), "\x1b[100;8u");
     // Removing the optional Alt button must not leave an invisible held modifier.
-    await page.keyboard.press("Control+Shift+Comma");
+    await page.keyboard.press(settingsShortcut);
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
-    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
+    const keyBarSettings = page.getByRole("dialog", { name: "Key bar", exact: true });
+    const heldModifierSettings = keyBarSettings.getByRole("group", { name: "Held modifiers", exact: true });
+    await heldModifierSettings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await keyBarSettings.getByRole("button", { name: "Close settings", exact: true }).tap();
     assert.equal(await page.locator('[data-key="Alt"]').count(), 0);
     const plainBefore = frames.length;
     await until(async () => !(await ctrl.isDisabled()), "typing ready after settings");
     await input.evaluate((element) => { (element as HTMLTextAreaElement).value = ""; });
-    await settings.waitFor({ state: "hidden" });
+    await keyBarSettings.waitFor({ state: "hidden" });
     await input.focus();
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await input.focus();
@@ -189,9 +194,10 @@ try {
     await until(() => frames.length > plainBefore, "typing after hiding Alt");
     assert.equal(frames.at(-1).type, "input");
     assert.equal(frames.at(-1).text, "z");
-    await page.keyboard.press("Control+Shift+Comma");
-    await settings.getByRole("button", { name: "Alt", exact: true }).tap();
-    await settings.getByRole("button", { name: "Close settings", exact: true }).tap();
+    await page.keyboard.press(settingsShortcut);
+    await settings.getByRole("button", { name: "Edit key bar", exact: true }).tap();
+    await heldModifierSettings.getByRole("button", { name: "Alt", exact: true }).tap();
+    await keyBarSettings.getByRole("button", { name: "Close settings", exact: true }).tap();
     previousMask = 0;
     assert.equal(await page.locator('[data-key="Alt"]').getAttribute("aria-pressed"), "false");
     // Leaving the terminal lens clears held state on the same pane.

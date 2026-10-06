@@ -23,6 +23,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Queued terminal chords and text are cancelled when the sender leaves their attachment or
   its terminal is replaced.
   ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot)
+- Settings can add, remove and reorder every mobile terminal key and register custom key
+  combinations in a separate key bar editor. Existing extra-key preferences keep their layout, and Restore defaults returns
+  the original bar. Native clipboard shortcuts on non-Latin keyboards and existing Alt combinations
+  remain intact.
 
 ### Fixed
 - An OmO pane that asks you a question reads INPUT until you answer. Before, a question OmO
