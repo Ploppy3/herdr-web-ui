@@ -27,10 +27,12 @@ explicit send-now action. The bridge checks its original connection, attachment,
 visible prompt before input and Enter; each automatic next message also waits for evidence that
 the preceding turn started and finished. It never sends native Tab and then resends that text.
 Pending acceptance is distinct from a committing-key receipt. Connection loss, pane separation
-and observe mode pause the pending list; reconnect or reload cannot rearm it. An uncertain
-delivery never retries automatically. Secret input remains outside this path, and legacy held
-messages retain their explicit Send now/Discard recovery. Older bridges cannot silently turn a
-working queue request into immediate input. Send now delivers through the existing paste-and-Enter
+and observe mode pause the pending list; reconnect or reload cannot rearm it. Losing a pane
+lease permanently cancels its in-flight send, even if that connection rejoins the same attachment
+or returns to interact before Enter. A queue request that arrives after the agent finishes uses
+the same guarded paste-and-Enter path. An uncertain delivery never retries automatically. Secret
+input remains outside this path, and legacy held messages retain their explicit Send now/Discard
+recovery. Older bridges cannot silently turn a working queue request into immediate input. Send now delivers through the existing paste-and-Enter
 path; each agent controls when it consumes that input. It is not a native app-server steering API.
 
 Direct input arriving before readiness or during a disconnect is held for explicit Send/Discard.

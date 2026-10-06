@@ -270,4 +270,72 @@ describe("connection-owned pending input", () => {
     await f.socket.wait((frame) => frame.type === "pending-messages" && frame.messages.some((item: PendingMessage) => item.id === message.id && item.state === "uncertain"));
     expect(f.bytes()).toBe(paste("ordinary message"));
   }, 30_000);
+
+  for (const automatic of [false, true]) for (const transition of ["observe", "detach"] as const) {
+    it(`permanently cancels ${automatic ? "automatic" : "explicit"} delivery after ${transition} and recovery`, async () => {
+      const f = await setup(`cancel-${automatic}-${transition}`, "claude", "› Message\n", { submitDelayMs: 750 });
+      await f.another(); // Keep the same shared attachment alive through detach/reattach.
+      const message = await f.queue(1, "cancel this commit");
+      if (automatic) await f.state("idle");
+      else f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
+      await f.waitBytes("\u001b[201~");
+      const from = f.socket.seen.length;
+      if (transition === "observe") {
+        f.socket.send({ type: "role", mode: "observe" });
+        await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "observe", from);
+        f.socket.send({ type: "role", mode: "interact" });
+        await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "interact", from);
+      } else {
+        f.socket.send({ type: "detach", pane_id: f.pane });
+        f.socket.send({ type: "attach", pane_id: f.pane, cols: 100, rows: 30 });
+        await f.socket.wait((frame) => frame.type === "input-ready" && frame.pane_id === f.pane && frame.ready !== false, from);
+      }
+      if (!automatic) expect(await f.socket.action(10)).toMatchObject({ ok: false, code: "submit_changed" });
+      // A later serialized request proves the cancelled dispatch has finished, not
+      // merely that hold() published an uncertain state during the paste gap.
+      f.socket.send({ type: "submit", id: 20, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+      expect(await f.socket.result(20)).toMatchObject({ ok: true });
+      await f.waitBytes("barrier\r");
+      expect(f.bytes()).toBe(`${paste(message.text)}barrier\r`);
+      expect(f.socket.seen.some((frame) => frame.type === "pending-messages" && frame.removed?.some((item: any) => item.id === message.id && item.outcome === "sent"))).toBe(false);
+      expect(f.socket.seen.filter((frame) => frame.type === "pending-messages").at(-1)?.messages).toContainEqual(expect.objectContaining({ id: message.id, state: "uncertain" }));
+    }, 30_000);
+  }
+
+  it("cancels a captured lease while acceptance waits behind earlier input", async () => {
+    const f = await setup("acceptance-lease", "claude", "› Message\n", { submitDelayMs: 750 });
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+    await f.waitBytes("barrier");
+    f.socket.send({ type: "submit", id: 2, pane_id: f.pane, text: "must not enqueue", payload: "unused", delivery: "queue" });
+    f.socket.send({ type: "role", mode: "observe" });
+    await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "observe");
+    f.socket.send({ type: "role", mode: "interact" });
+    await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "interact");
+    expect(await f.socket.result(2)).toMatchObject({ ok: false, code: "pending_lease_lost" });
+    expect(f.socket.seen.some((frame) => frame.type === "pending-messages")).toBe(false);
+    expect(f.bytes()).toBe("barrier\r");
+  }, 30_000);
+
+  it("cancels ready-at-arrival queue input when its owner disconnects after paste", async () => {
+    const f = await setup("ready-close", "claude", "› Message\n", { submitDelayMs: 750 });
+    const keeper = await f.another();
+    await f.state("idle");
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "ready close", payload: "unused", delivery: "queue" });
+    await f.waitBytes("\u001b[201~");
+    await f.socket.disconnect();
+    keeper.send({ type: "submit", id: 20, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+    expect(await keeper.result(20)).toMatchObject({ ok: true });
+    await f.waitBytes("barrier\r");
+    expect(f.bytes()).toBe(`${paste("ready close")}barrier\r`);
+  }, 30_000);
+
+  it("rechecks a new secret prompt before committing ready-at-arrival queue input", async () => {
+    const f = await setup("ready-secret", "claude", "› Message\n", { submitDelayMs: 750 });
+    await f.state("idle");
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "ordinary text", payload: "unused", delivery: "queue" });
+    await f.waitBytes("\u001b[201~");
+    await f.showScreen("Enter passphrase:");
+    expect(await f.socket.result(1)).toMatchObject({ ok: false, code: "submit_changed" });
+    expect(f.bytes()).toBe(paste("ordinary text"));
+  }, 30_000);
 });
