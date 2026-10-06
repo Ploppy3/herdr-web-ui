@@ -5,8 +5,8 @@ import { join } from "node:path";
 import * as herdr from "./herdr/client.ts";
 import { createServer } from "./index.ts";
 
-/** Hold one keys RPC so the next chord waits while its sender leaves the pane. */
-async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "refresh") {
+/** Hold one keys RPC so the next chord or text waits across attachment transitions. */
+async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "refresh", input = false) {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-keys-lifecycle-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
   const sockets: WebSocket[] = [];
@@ -15,6 +15,12 @@ async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "r
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const calls: string[][] = [];
   const original = herdr.paneSendKeys;
+  const texts: string[] = [];
+  const originalText = herdr.paneSendText;
+  const textSpy = spyOn(herdr, "paneSendText").mockImplementation(async (pane, text) => {
+    texts.push(text);
+    return originalText(pane, text);
+  });
   const spy = spyOn(herdr, "paneSendKeys").mockImplementation(async (pane, keys) => {
     calls.push(keys);
     if (calls.length === 1) await gate;
@@ -52,7 +58,8 @@ async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "r
     }
     owner.send({ type: "keys", pane_id: pane, keys: ["ctrl+right"] });
     await until(() => calls.length === 1);
-    owner.send({ type: "keys", pane_id: pane, keys: ["ctrl+alt+shift+left"] });
+    owner.send(input ? { type: "input", pane_id: pane, text: "queued text" }
+      : { type: "keys", pane_id: pane, keys: ["ctrl+alt+shift+left"] });
     if (leave !== "none" && leave !== "refresh") owner.send({ type: "detach", pane_id: pane });
     // An acknowledged later frame is a barrier: the queued key and detach were handled.
     owner.send({ type: "role", mode: "interact" });
@@ -69,17 +76,24 @@ async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "r
     }
     release();
     if (leave === "none" || leave === "refresh") {
-      await until(() => calls.length === 2);
-      expect(calls[1]).toEqual(["ctrl+alt+shift+left"]);
+      if (input) {
+        await until(() => texts.length === 1);
+        expect(texts).toEqual(["queued text"]);
+      } else {
+        await until(() => calls.length === 2);
+        expect(calls[1]).toEqual(["ctrl+alt+shift+left"]);
+      }
     } else {
-      await until(() => owner.seen.some((frame) => frame.type === "error" && frame.code === "input_not_ready"));
+      await until(() => texts.length > 0 || owner.seen.some((frame) => frame.type === "error" && frame.code === (input ? "input_failed" : "input_not_ready")));
       expect(calls).toEqual([["ctrl+right"]]);
+      expect(texts).toEqual([]);
     }
   } finally {
     release();
     for (const socket of sockets) socket.close();
     server.stop();
     spy.mockRestore();
+    textSpy.mockRestore();
     if (workspace) await herdr.workspaceClose(workspace).catch(() => undefined);
     rmSync(root, { recursive: true, force: true });
   }
@@ -90,6 +104,12 @@ it("drops a queued chord after its sender detaches while another client keeps th
 it("drops a queued chord after its original attachment is replaced", () => queuedKeys("replace"), 20_000);
 it("drops a queued chord after its sender detaches and rejoins the same attachment", () => queuedKeys("reattach"), 20_000);
 it("preserves a queued chord when the sender refreshes its attach without detaching", () => queuedKeys("refresh"), 20_000);
+
+it("sends text queued behind a chord while its attachment claim survives", () => queuedKeys("none", true), 20_000);
+it("drops queued text after its sender detaches while a peer keeps the attachment", () => queuedKeys("detach", true), 20_000);
+it("drops queued text after its attachment is replaced", () => queuedKeys("replace", true), 20_000);
+it("drops queued text after its sender detaches and rejoins the same attachment", () => queuedKeys("reattach", true), 20_000);
+it("preserves queued text on repeated attach without detach", () => queuedKeys("refresh", true), 20_000);
 
 it("cancels a pending attach continuation when detach and reattach installs a new claim", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-attach-claim-"));

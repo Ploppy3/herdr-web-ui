@@ -1829,9 +1829,12 @@ export function createServer(
                 const text = message.text;
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
+                const claim = client.data.attached.get(message.pane_id);
                 void serialize(message.pane_id, () => {
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
-                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
+                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
+                    || client.data.attached.get(message.pane_id) !== claim
+                    || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
