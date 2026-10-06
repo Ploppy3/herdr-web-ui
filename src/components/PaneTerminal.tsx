@@ -720,6 +720,7 @@ export function PaneTerminal({
           const memory = greetingMemory(owner);
           rememberGreeting(owner, afterSettled(afterSend(memory), true, memory.history)); redrawGreeting();
           if (message.pane_id === paneRef.current) {
+            onChatSuggestion(message.pane_id, null);
             setChatSent((current) => current + 1);
             setChatRefresh((current) => current + 1);
           }
