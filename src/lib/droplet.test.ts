@@ -113,23 +113,39 @@ describe("showDroplet", () => {
 describe("seedStatuses", () => {
   const roster = (...panes: Array<[string, AgentStatus]>) => [{ id: "local", snapshot: { panes: panes.map(([pane_id, agent_status]) => ({ pane_id, agent_status })) } }];
 
-  it("leaves a pane it has heard of to its status events: a roster that shows the wait first does not make the event old news", () => {
+  it("leaves news to its status event: a roster that shows the wait or the finish first does not make the event old news", () => {
     const known = new Map<string, AgentStatus>();
-    seedStatuses(known, roster(["p1", "idle"]));
+    seedStatuses(known, roster(["p1", "idle"], ["p2", "idle"]));
     known.set("p1", "working");
-    // the roster is read from herdr on its own and can show `blocked` before the event arrives
-    seedStatuses(known, roster(["p1", "blocked"]));
+    known.set("p2", "working");
+    // the roster is read from herdr on its own and can show a change before its event arrives
+    seedStatuses(known, roster(["p1", "blocked"], ["p2", "done"]));
     expect(shouldNotifyStatus(known.get("p1"), "blocked")).toBe(true);
+    expect(shouldNotifyStatus(known.get("p2"), "done")).toBe(true);
   });
 
-  it("keeps the start of a turn for its event: a roster that shows the work first does not hide how long it took", () => {
+  it("takes what is no news, and starts the turn's clock as the event would: a roster that shows the work first does not hide how long it took", () => {
     const known = new Map<string, AgentStatus>();
-    const started = new Map<string, number>();
-    seedStatuses(known, roster(["p1", "idle"]));
-    seedStatuses(known, roster(["p1", "working"]));
-    trackTurn(started, "p1", known.get("p1"), "working", 1_000);
-    known.set("p1", "working");
-    expect(trackTurn(started, "p1", known.get("p1"), "done", 4_000)).toBe(3_000);
+    const turns = { started: new Map<string, number>(), lasted: new Map<string, number>() };
+    seedStatuses(known, roster(["p1", "idle"]), turns, 0);
+    seedStatuses(known, roster(["p1", "working"]), turns, 1_000);
+    expect(known.get("p1")).toBe("working");
+    // the event that follows is no change
+    expect(trackTurn(turns.started, "p1", known.get("p1"), "working", 1_200)).toBeNull();
+    expect(trackTurn(turns.started, "p1", "working", "done", 4_000)).toBe(3_000);
+  });
+
+  it("catches up after lost events: a pane the roster shows back at work waits anew, which is news", () => {
+    const known = new Map<string, AgentStatus>([["p1", "blocked"]]);
+    const turns = { started: new Map<string, number>([["p1", 0]]), lasted: new Map<string, number>() };
+    // answered while no event arrived: the roster is all that says so
+    seedStatuses(known, roster(["p1", "working"]), turns, 5_000);
+    expect(shouldNotifyStatus(known.get("p1"), "blocked")).toBe(true);
+    // and one it shows at rest has ended its turn
+    seedStatuses(known, roster(["p1", "idle"]), turns, 9_000);
+    expect(known.get("p1")).toBe("idle");
+    expect(turns.started.has("p1")).toBe(false);
+    expect(turns.lasted.get("p1")).toBe(9_000);
   });
 
   it("takes a pane first seen as it is: no news", () => {
