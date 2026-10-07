@@ -169,7 +169,7 @@ running llama.cpp server that this app cannot ask. The model and reasoning effor
 | **Make it yours** | English, Korean, Japanese or Simplified Chinese, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
 
 Every agent has the same chat controls on desktop and phones: Stop while it works with an empty
-draft, Send when you type, and Send at rest. Sending during work adds a message bubble above the
+draft, Send when you type, and Send at rest. With a draft in the box, Escape stops the agent. Sending during work adds a message bubble above the
 input card. It waits for the current response, then goes to the agent's next turn. Use a pending message's
 **↑ Send now** action to send it now. The bridge immediately delivers it; when the agent reads
 it is controlled by that agent, so this does not promise instant interruption. The small X discards it.

@@ -721,8 +721,14 @@ export function Composer({
           return;
         }
       }
-      if (event.key === "Escape" && trigger) {
+      if (event.key === "Escape" && trigger && !menuDismissed) {
         setMenuDismissed(true);
+        return;
+      }
+      // a draft puts Send where Stop was: Escape is then the Stop the agent's own input has
+      if (event.key === "Escape" && connected && agentStatus === "working" && textRef.current.trim().length > 0) {
+        event.preventDefault();
+        onAbort();
         return;
       }
       // Tab takes the suggestion into the empty box, as in Claude's own input
@@ -739,7 +745,7 @@ export function Composer({
       event.preventDefault();
       send();
     },
-    [choices, menuOpen, offered, selectCompletion, selectedIndex, send, setTextAndCaret, settings.enterSends, trigger],
+    [agentStatus, choices, connected, menuDismissed, menuOpen, offered, onAbort, selectCompletion, selectedIndex, send, setTextAndCaret, settings.enterSends, trigger],
   );
 
   const onPaste = useCallback(

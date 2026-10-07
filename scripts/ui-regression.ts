@@ -549,6 +549,17 @@ try {
   assert.equal(pendingBytes(), `\u001b[200~${queuedTexts[0]}\u001b[201~\r`);
   assert.equal(pendingActions.at(-1)?.pane_id, pendingPane);
   assert.equal(await pendingRows.first().getByRole("button", { name: /^Send now:/ }).evaluate((button) => button === document.activeElement), true, "a removed keyboard action hands focus to the next pending action");
+  // a draft puts Send where Stop was: Escape in the box is still Stop, once a completion is put away, and keeps the draft
+  await composer.fill("/he");
+  await composer.press("Escape");
+  await page.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.equal(pendingBytes(), `\u001b[200~${queuedTexts[0]}\u001b[201~\r`, "the first Escape on a command being completed only puts the completion away");
+  await composer.fill("a draft while the agent works");
+  assert.equal(await page.getByRole("button", { name: "Stop agent", exact: true }).count(), 0);
+  await composer.press("Escape");
+  await until(() => pendingBytes() === `\u001b[200~${queuedTexts[0]}\u001b[201~\r\u001b`, "Escape with a draft stops the working agent");
+  assert.equal(await composer.inputValue(), "a draft while the agent works", "Escape leaves the draft in the box");
+  await composer.fill("");
   await page.reload(); await page.locator(".conn-live").waitFor();
   await until(async () => await pendingRows.count() === 2, "saved pending copies restored");
   assert.deepEqual(await pendingRows.locator(".pending-message-bubble").allTextContents(), queuedTexts.slice(1));
@@ -556,7 +567,7 @@ try {
   assert.equal(await page.locator(".pending-message-send").count(), 0, "unknown delivery cannot be resent");
   await reportPending("idle"); await page.locator('.composer-status:not([data-status="working"])').waitFor();
   await page.waitForTimeout(NO_SEND_WAIT_MS);
-  assert.equal(pendingBytes(), `\u001b[200~${queuedTexts[0]}\u001b[201~\r`, "reload and readiness never replay saved pending input");
+  assert.equal(pendingBytes(), `\u001b[200~${queuedTexts[0]}\u001b[201~\r\u001b`, "reload and readiness never replay saved pending input");
   for (let left = 2; left > 0; left--) { await page.getByRole("button", { name: "Discard saved copy", exact: true }).first().click(); await until(async () => await pendingRows.count() === left - 1, "discard saved copy"); }
   console.log("PASS Send queues server-owned input, explicit Send now delivers once, and reload/readiness never replay uncertain copies");
 
