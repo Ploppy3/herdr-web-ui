@@ -1487,9 +1487,8 @@ export function PaneTerminal({
         );
       }
       if (!socketRef.current?.connected || heldRef.current || secretRef.current !== null) return false;
-      const delivery = composerDelivery(agent, agentStatus);
-      if (delivery === "queue" && !socketRef.current.canQueueMessages()) return t("Update this PC to send messages in the next turn. Your draft stayed here.");
-      return sendComposerText(text, delivery);
+      // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports
+      return sendComposerText(text, composerDelivery(agent, agentStatus));
     },
     [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
   );
