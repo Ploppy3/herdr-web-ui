@@ -1531,12 +1531,17 @@ export function modelListWaits(agent: string, screen: string): boolean {
  */
 function claudeModelListWaits(screen: string): boolean {
   const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  const shown = withoutClaudeTasks(visible);
   // wider than the reader's own window: a hint wrapped further than it reads is still this list's.
-  // The match runs into the last line, as in promptTailIsActive: a hint that ended above later
-  // output is an answered list's, and holds nothing
-  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" "))
-    && (span === 1 || !CLAUDE_MODEL_HINT_RE.test(shown.slice(-span, -1).join(" "))));
+  // The match runs into the line it ends at, as in promptTailIsActive: a hint that ended above
+  // later output is an answered list's, and holds nothing
+  const ends = (lines: string[], end: number): boolean => [1, 2, 3, 4, 5, 6].some((span) => {
+    const from = Math.max(0, end - span);
+    return CLAUDE_MODEL_HINT_RE.test(lines.slice(from, end).join(" ")) && (span === 1 || !CLAUDE_MODEL_HINT_RE.test(lines.slice(from, end - 1).join(" ")));
+  });
+  // Claude's own footer under the open list (the session's rule, its task list) is no later
+  // output, and it sits under a wrapped hint as under a whole one
+  const shown = withoutClaudeTasks(visible, ends);
+  return ends(shown, shown.length);
 }
 
 function parseClaudeModel(screen: string): ParsedPrompt | null {
@@ -1588,7 +1593,8 @@ const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
 const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
 const LABELED_RULE_RE = /^─{3,}\s.*─$/;
 const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
-function withoutClaudeTasks(shown: string[]): string[] {
+/** `hintEnds`: whether the panel's hint ends at line `end`; a hint a narrow pane wrapped needs its own reading */
+function withoutClaudeTasks(shown: string[], hintEnds: (lines: string[], end: number) => boolean = (lines, end) => CLAUDE_HINT_TAIL_RE.test(lines[end - 1] ?? "")): string[] {
   let end = shown.length;
   const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
   if (head >= 0) {
@@ -1608,7 +1614,7 @@ function withoutClaudeTasks(shown: string[]): string[] {
   }
   // the session's rule is drawn above the list, and with no task list too
   if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
-  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+  return end < shown.length && hintEnds(shown, end) ? shown.slice(0, end) : shown;
 }
 
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {

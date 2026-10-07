@@ -252,6 +252,10 @@ describe("connection-owned pending input", () => {
     await f.showScreen(list);
     f.socket.send({ type: "pending-action", id: 2, pane_id: f.pane, pending_id: message.id, action: "steer" });
     expect(await f.socket.action(2)).toMatchObject({ ok: false, code: "agent_blocked" });
+    // a narrow pane wraps the hint, and Claude draws the session's rule under the open list
+    await f.showScreen(list.replace("  Enter to set as default · s to use this session only · Esc to cancel\n", "  Enter to set as default · s to use this session only · Esc to\n  cancel\n──────────── Session name ─\n"));
+    f.socket.send({ type: "pending-action", id: 3, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    expect(await f.socket.action(3)).toMatchObject({ ok: false, code: "agent_blocked" });
     expect(f.bytes()).toBe("");
   }, 30_000);
 
