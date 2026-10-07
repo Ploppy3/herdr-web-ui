@@ -42,7 +42,7 @@ class Socket {
 
 beforeAll(() => {
   writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||""),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));const watch=fs.watch(process.argv[4],()=>process.stdout.write("\\x1b[2J\\x1b[H"+fs.readFileSync(process.argv[4],"utf8")));process.on("exit",()=>watch.close());`);
-  for (const name of ["claude", "codex"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
+  for (const name of ["claude", "codex", "plain"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
 });
 afterEach(async () => {
   for (const item of active.splice(0)) { for (const socket of item.sockets) socket.close(); item.stop(); await herdrRpc("workspace.close", { workspace_id: item.workspace }).catch(() => undefined); }
@@ -61,7 +61,8 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
   await herdrRpc("pane.send_text", { pane_id: pane, text: `exec '${join(root, agent)}' '${join(root, "record.cjs")}' '${log}' '${screen.replace(/\n/g, "\r\n")}' '${screenFile}'\n` });
   const deadline = Date.now() + 10_000;
   while (!existsSync(log)) { if (Date.now() > deadline) throw new Error("recorder did not start"); await Bun.sleep(25); }
-  await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent, state: "working" });
+  // "plain" is a program herdr knows as no agent
+  if (agent !== "plain") await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent, state: "working" });
   const server = createServer({ ...options, port: 0, stateDir: join(root, `state-${id}`) });
   entry.stop = server.stop;
   const socket = new Socket(server.port); entry.sockets.push(socket);
@@ -203,6 +204,15 @@ describe("connection-owned pending input", () => {
     f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "ready now", payload: "unused", delivery: "queue" });
     expect(await f.socket.result(1)).toMatchObject({ ok: true }); expect((await f.socket.result(1)).pending).toBeUndefined();
     await f.waitBytes("\r"); expect(f.bytes()).toBe(`${paste("ready now")}\r`);
+    expect(f.socket.seen.some((frame) => frame.type === "pending-messages")).toBe(false);
+  }, 30_000);
+
+  it("refuses a queue request when no agent is in front, and types nothing into the program there", async () => {
+    const f = await setup("no-agent", "plain");
+    expect((await sessionSnapshot()).panes.find((pane) => pane.pane_id === f.pane)?.agent ?? null).toBeNull();
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "for the agent", payload: "unused", delivery: "queue" });
+    expect(await f.socket.result(1)).toMatchObject({ ok: false, code: "agent_not_ready" });
+    expect(f.bytes()).toBe("");
     expect(f.socket.seen.some((frame) => frame.type === "pending-messages")).toBe(false);
   }, 30_000);
 

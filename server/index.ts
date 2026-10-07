@@ -2125,6 +2125,8 @@ export function createServer(
                     const context = await pendingContext(client, message.pane_id, lease!);
                     if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "This pending message waited too long; nothing was typed");
                     if (!context.working) {
+                      // the agent left while the message was on its way: a chat follow-up is not typed into what is there now
+                      if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
                       // A request that raced the turn's finish still needs cancellable
                       // paste + Enter; agent.prompt commits its key inside herdr.
                       return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
