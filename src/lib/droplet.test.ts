@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { DROPLET_REPEAT_MS, FLICK_WINDOW_MS, LONG_TURN_MS, dropletAllows, endedTurn, flickVelocity, onDroplet, showDroplet, trackTurn, type DropletNotice, type QueuedDroplet } from "./droplet.ts";
+import { DROPLET_REPEAT_MS, FLICK_WINDOW_MS, LONG_TURN_MS, dropletAllows, endedTurn, flickVelocity, onDroplet, seedStatuses, showDroplet, trackTurn, type DropletNotice, type QueuedDroplet } from "./droplet.ts";
+import { shouldNotifyStatus } from "../../shared/notify-policy.ts";
+import type { AgentStatus } from "../../shared/protocol.ts";
 
 const notice: DropletNotice = { machineId: "local", paneId: "p1", agent: "claude", title: "api", machine: null, kind: "blocked" };
 
@@ -105,5 +107,46 @@ describe("showDroplet", () => {
       off();
     }
     expect(showDroplet({ ...notice, paneId: "p2" }, 20_000)).toBe(false);
+  });
+});
+
+describe("seedStatuses", () => {
+  const roster = (...panes: Array<[string, AgentStatus]>) => [{ id: "local", snapshot: { panes: panes.map(([pane_id, agent_status]) => ({ pane_id, agent_status })) } }];
+
+  it("leaves a pane it has heard of to its status events: a roster that shows the wait first does not make the event old news", () => {
+    const known = new Map<string, AgentStatus>();
+    seedStatuses(known, roster(["p1", "idle"]));
+    known.set("p1", "working");
+    // the roster is read from herdr on its own and can show `blocked` before the event arrives
+    seedStatuses(known, roster(["p1", "blocked"]));
+    expect(shouldNotifyStatus(known.get("p1"), "blocked")).toBe(true);
+  });
+
+  it("keeps the start of a turn for its event: a roster that shows the work first does not hide how long it took", () => {
+    const known = new Map<string, AgentStatus>();
+    const started = new Map<string, number>();
+    seedStatuses(known, roster(["p1", "idle"]));
+    seedStatuses(known, roster(["p1", "working"]));
+    trackTurn(started, "p1", known.get("p1"), "working", 1_000);
+    known.set("p1", "working");
+    expect(trackTurn(started, "p1", known.get("p1"), "done", 4_000)).toBe(3_000);
+  });
+
+  it("takes a pane first seen as it is: no news", () => {
+    const known = new Map<string, AgentStatus>();
+    seedStatuses(known, roster(["p1", "blocked"]));
+    expect(known.get("p1")).toBe("blocked");
+    expect(shouldNotifyStatus(known.get("p1"), "blocked")).toBe(false);
+  });
+
+  it("forgets a pane no PC lists any more, on each PC by its own id", () => {
+    const known = new Map<string, AgentStatus>();
+    seedStatuses(known, [...roster(["p1", "blocked"]), { id: "pc-2", snapshot: { panes: [{ pane_id: "p1", agent_status: "working" as AgentStatus }] } }]);
+    expect(known.size).toBe(2);
+    // p1 closed on this PC; the other PC is offline and lists nothing
+    seedStatuses(known, [{ id: "local", snapshot: { panes: [] } }, { id: "pc-2", snapshot: null }]);
+    expect(known.size).toBe(0);
+    seedStatuses(known, roster(["p1", "idle"]));
+    expect(known.get("p1")).toBe("idle");
   });
 });
