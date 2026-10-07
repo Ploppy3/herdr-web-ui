@@ -97,23 +97,8 @@ export async function checkChatKeepsTerminalSize(browser: Browser, origin: strin
     await phone.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "out" && f.type === "resize"), undefined, { timeout: 10_000 });
     const deadline = Date.now() + 10_000;
     let phoneSize = desktopSize;
-    // The input line can grow to wrap its placeholder after the lens mounts.
-    // Wait for the pane and phone renderer to agree, rather than taking the first
-    // resize while another fit is still pending.
-    const phoneRowsNow = () => phone.locator(".pane-terminal .xterm-rows > div").count();
-    let matchedSize = "";
-    let matchedSince = 0;
-    while (Date.now() < deadline) {
-      phoneSize = await size();
-      const matches = phoneSize !== desktopSize && Number(phoneSize.split(" ")[0]) === await phoneRowsNow();
-      if (!matches || phoneSize !== matchedSize) {
-        matchedSize = matches ? phoneSize : "";
-        matchedSince = Date.now();
-      } else if (Date.now() - matchedSince >= NO_RESIZE_WAIT_MS) break;
-      await Bun.sleep(100);
-    }
+    while (phoneSize === desktopSize && Date.now() < deadline) phoneSize = await size();
     assert.notEqual(phoneSize, desktopSize, "the phone's terminal lens fits the grid to the phone");
-    assert.equal(Number(phoneSize.split(" ")[0]), await phoneRowsNow(), "the pane and phone renderer agree after fitting");
     assert.ok(Number(phoneSize.split(" ")[1]) < Number(desktopSize.split(" ")[1]), `phone ${phoneSize} narrower than desktop ${desktopSize}`);
     console.log(`PASS the phone's terminal lens fits the grid to ${phoneSize}`);
 

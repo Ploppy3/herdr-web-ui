@@ -726,7 +726,7 @@ export const JA: Record<string, string> = {
   "Show the whole output ({size} characters)": "出力全体を表示 ({size} 文字)",
   "Loading the whole output…": "出力全体を読み込んでいます…",
   "Couldn't load the whole output — retry": "出力全体を読み込めませんでした — 再試行",
-  "Keyboard button → direct TUI input. Use this line for paste, voice or swipe typing.": "キーボードボタン → TUIに直接入力。貼り付け・音声・スワイプ入力にはこの入力欄を使えます。",
+  "Type for the terminal…": "ターミナルへの入力…",
   "Terminal input line": "ターミナル入力行",
   "Press Enter in the terminal": "ターミナルで Enter を押す",
   "Send to the terminal": "ターミナルに送信",
