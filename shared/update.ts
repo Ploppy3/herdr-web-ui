@@ -26,6 +26,31 @@ export type UpdateStep = typeof UPDATE_STEPS[number];
 
 export type UpdateCommand = "check" | "install";
 
+/** One release's section of CHANGELOG.md. */
+export interface ReleaseNote {
+  /** without the v */
+  version: string;
+  /** the date in the section's heading, as written there; null when it has none */
+  date: string | null;
+  /** the section's body, Markdown */
+  notes: string;
+}
+
+/**
+ * GET /api/updates/notes: what the available update brings. Asked for once per release, and
+ * kept out of the status, which is polled.
+ */
+export interface UpdateNotes {
+  /** every release after the running one, up to the latest, newest first; empty when no update is offered or its changelog has no section for it */
+  releases: ReleaseNote[];
+  /** older releases the update also brings, left out for length */
+  omitted: number;
+}
+
+export function noUpdateNotes(): UpdateNotes {
+  return { releases: [], omitted: 0 };
+}
+
 export function unmanagedUpdateStatus(): UpdateStatus {
   return {
     managed: false, auto_update: false, phase: "idle", current_revision: null,

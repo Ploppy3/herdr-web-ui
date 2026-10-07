@@ -28,6 +28,8 @@ import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
+  /** the section to open on, for a button that points at it; the top otherwise */
+  section?: "updates" | null;
   onClose: () => void;
   actions: AppActions;
   updates: UpdatesModel;
@@ -138,13 +140,14 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, section = null, onClose, actions, updates, auth, herdrVersion, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
   const usage = useUsage(open && settings.showUsage);
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // the Sound switch as last set: the preview waits for the audio, and must not play once it is off
   const alertSoundWanted = useRef(settings.alertSound);
   // server-side: the web server updates PC bridges, so it keeps this choice
@@ -203,6 +206,8 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
   useEffect(() => {
     if (!open) return;
     firstControlRef.current?.focus();
+    // Updates is the last of a long list: a button that points at it opens on it
+    if (section === "updates") bodyRef.current?.querySelector(".settings-updates")?.scrollIntoView();
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -210,7 +215,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open, onClose]);
+  }, [open, section, onClose]);
 
   if (!open) return null;
 
@@ -221,7 +226,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
           <h2 className="modal-title" id="settings-title">{t("Settings")}</h2>
           <button type="button" className="icon-button" aria-label={t("Close settings")} onClick={onClose}><X /></button>
         </header>
-        <div className="modal-body settings-body">
+        <div className="modal-body settings-body" ref={bodyRef}>
           <section className="settings-section">
             <h3>{t("Appearance")}</h3>
             <div className="settings-row">
