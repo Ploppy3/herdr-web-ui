@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -2093,6 +2093,10 @@ ${"─".repeat(120)}
     expect(parseInteractivePrompt("claude", CLAUDE_MODEL_CLOSED)).toBeNull();
     // the list's text left above later output takes no key any more
     expect(parseInteractivePrompt("claude", `${claudeModelList(1)}Some later output\nand more\n`)).toBeNull();
+    // nor does it hold the screen for a message that waits to be typed, while an open list does, wrapped or not
+    expect(modelListWaits("claude", `${claudeModelList(1)}Some later output\nand more\n`)).toBe(false);
+    expect(modelListWaits("claude", claudeModelList(1))).toBe(true);
+    expect(modelListWaits("claude", claudeModelList(1).replace(CLAUDE_MODEL_HINT, "  Enter to set as\n  default · s to use\n  this session\n  only · Esc to\n  cancel"))).toBe(true);
     // a list that takes Enter alone would save the pick as the default: not this card's to press
     expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to set as default · Esc to cancel"))).toBeNull();
     expect(parseInteractivePrompt("claude", claudeModelList(1, 0, 10, "  Enter to confirm · Esc to cancel"))).toBeNull();

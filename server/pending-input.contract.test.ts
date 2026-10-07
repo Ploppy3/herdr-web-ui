@@ -255,6 +255,14 @@ describe("connection-owned pending input", () => {
     expect(f.bytes()).toBe("");
   }, 30_000);
 
+  it("does not take a model list's hint above later output for an open list", async () => {
+    const f = await setup("stale-list"); const message = await f.queue(1, "after the old list");
+    await f.showScreen("  Enter to set as default · s to use this session only · Esc to cancel\nSome later output\n› Message\n");
+    f.socket.send({ type: "pending-action", id: 2, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    expect(await f.socket.action(2)).toMatchObject({ ok: true });
+    await f.waitBytes("\r"); expect(f.bytes()).toBe(`${paste("after the old list")}\r`);
+  }, 30_000);
+
   it("supports pending input on a mirrored attachment without a PTY sidecar", async () => {
     const f = await setup("mirror", "claude", "› Message\n", { terminalAttach: false });
     const message = await f.queue(1, "mirror 한글\nnext"); expect(f.bytes()).toBe("");

@@ -1532,8 +1532,11 @@ export function modelListWaits(agent: string, screen: string): boolean {
 function claudeModelListWaits(screen: string): boolean {
   const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
   const shown = withoutClaudeTasks(visible);
-  // wider than the reader's own window: a hint wrapped further than it reads is still this list's
-  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" ")));
+  // wider than the reader's own window: a hint wrapped further than it reads is still this list's.
+  // The match runs into the last line, as in promptTailIsActive: a hint that ended above later
+  // output is an answered list's, and holds nothing
+  return [1, 2, 3, 4, 5, 6].some((span) => CLAUDE_MODEL_HINT_RE.test(shown.slice(-span).join(" "))
+    && (span === 1 || !CLAUDE_MODEL_HINT_RE.test(shown.slice(-span, -1).join(" "))));
 }
 
 function parseClaudeModel(screen: string): ParsedPrompt | null {
