@@ -61,6 +61,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   list on this PC could take up to 5 seconds to say so. A device that opened the pane in that
   time took it for a shell: it opened the terminal instead of the chat, and resized the
   terminal shared with the other devices.
+  ([#537](https://github.com/devswha/herdr-web-ui/pull/537))
 
 ## [0.3.52] - 2026-10-06
 
