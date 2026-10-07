@@ -61,6 +61,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   a pane waiting or finished a moment before the status change itself arrived, the open app
   took the change for old news and said nothing. A finished turn is also measured from its own
   start in that case, so a short turn is not told as a long one.
+  ([#536](https://github.com/devswha/herdr-web-ui/pull/536))
 
 ## [0.3.52] - 2026-10-06
 
