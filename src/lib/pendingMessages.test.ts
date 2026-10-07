@@ -108,6 +108,30 @@ describe("pending message ownership", () => {
     first.unconfirm("pc:pane", "h");
     expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "uncertain"], ["y", "uncertain"]]);
   });
+  it("keeps another tab's mark when this tab writes the list for a row of its own", () => {
+    const port = storage(), seed = new PendingMessageStore(() => port);
+    seed.accept("pc:pane", message("h", "held"), "connection-0");
+    seed.accept("pc:pane", message("b", "held"), "connection-0");
+    const first = new PendingMessageStore(() => port), second = new PendingMessageStore(() => port);
+    first.read("pc:pane"); second.read("pc:pane");
+    expect(first.begin("pc:pane", "h")).toBe(true);
+    expect(first.unconfirm("pc:pane", "h")).toBe(true);
+    second.removeCopy("pc:pane", "b");
+    expect(second.read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "uncertain"]]);
+    expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "uncertain"]]);
+  });
+  it("does not send a held copy again when its mark cannot be saved over the saved copy", () => {
+    const port = storage(), seed = new PendingMessageStore(() => port);
+    seed.accept("pc:pane", message("h", "held"), "connection-0");
+    const full = new PendingMessageStore(() => ({ ...port, setItem: () => { throw new Error("quota"); } }));
+    expect(full.begin("pc:pane", "h")).toBe(true);
+    expect(full.unconfirm("pc:pane", "h")).toBe(false);
+    // with nothing saved there is no copy a reload could offer again
+    const none = new PendingMessageStore(() => ({ getItem: () => null, setItem: () => { throw new Error("blocked"); }, removeItem: () => {} }));
+    none.accept("pc:pane", message("m", "held"), null);
+    expect(none.begin("pc:pane", "m")).toBe(true);
+    expect(none.unconfirm("pc:pane", "m")).toBe(true);
+  });
   it("keeps unsaved text in memory when storage fails", () => {
     const store = new PendingMessageStore(() => ({ getItem: () => null, setItem: () => { throw new Error("full"); }, removeItem: () => { throw new Error("full"); } }));
     store.accept("p", message("a"), "scope");

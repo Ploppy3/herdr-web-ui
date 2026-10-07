@@ -125,6 +125,7 @@ export class PendingMessageStore {
     }
   }
   suspend(owner: string, scope: string): void {
+    this.refresh(owner);
     const proofs = this.scopes.get(owner);
     let changed = false;
     const next = this.read(owner).map((message) => {
@@ -147,13 +148,17 @@ export class PendingMessageStore {
   /**
    * Saves a row as not confirmed while what is shown stays as it is. A held copy sent again is
    * a new submission with no receipt of its own: a reload before its answer must not offer it once more.
+   * false: the mark could not be saved over a copy still saved as held, so the send must not start.
    */
-  unconfirm(owner: string, id: string): void {
+  unconfirm(owner: string, id: string): boolean {
     // another tab may have saved a message since this one last read the list
     this.refresh(owner);
     // every write until the answer keeps the mark, also one made for another row
     this.unconfirmed.add(`${owner}\0${id}`);
     this.write(owner, this.read(owner));
+    if (!this.unsaved.has(owner)) return true;
+    // with nothing saved (storage that never worked) there is no copy a reload could offer again
+    try { return !this.restored(this.storage().getItem(PREFIX + owner)).some((message) => message.id === id && message.state === "held"); } catch { return true; }
   }
   end(owner: string, id: string): void {
     this.unconfirmed.delete(`${owner}\0${id}`);
@@ -163,6 +168,8 @@ export class PendingMessageStore {
   }
   fail(owner: string, id: string, error: { code: string; message: string }, uncertain: boolean): void {
     this.unconfirmed.delete(`${owner}\0${id}`);
+    // another tab's rows and marks as they are saved now: this write is the whole list
+    this.refresh(owner);
     this.write(owner, this.read(owner).map((message) => message.id === id ? { ...message, error,
       state: uncertain ? "uncertain" : message.serverOwned ? message.state : "held" } : message));
   }
@@ -170,6 +177,7 @@ export class PendingMessageStore {
     if (this.read(owner).some((message) => message.id === id && message.serverOwned)) return;
     this.scopes.get(owner)?.delete(id);
     this.unconfirmed.delete(`${owner}\0${id}`);
+    this.refresh(owner);
     this.write(owner, this.read(owner).filter((message) => message.id !== id));
   }
 }

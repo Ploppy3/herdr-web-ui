@@ -1501,6 +1501,8 @@ export function PaneTerminal({
     const owner = queueOwner, pane = paneId;
     const socket = socketRef.current, scope = pendingScopeRef.current;
     if (owner === null || pane === null || paneRef.current !== pane) return;
+    // what another tab saved since: a copy it is sending again is not confirmed here either
+    pendingMessages.refresh(owner);
     const message = pendingMessages.read(owner).find((item) => item.id === id);
     if (!message || message.state === "sending") return;
     if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
@@ -1519,7 +1521,10 @@ export function PaneTerminal({
       } else if (action === "discard") {
         pendingMessages.removeCopy(owner, id);
       } else if (message.state === "held") {
-        pendingMessages.unconfirm(owner, id);
+        if (!pendingMessages.unconfirm(owner, id)) {
+          pendingMessages.fail(owner, id, { code: "unsaved", message: t("Queue could not be saved. Keep this tab open or copy the messages before reloading.") }, false);
+          return;
+        }
         const result = submitComposerMessage(message.text, "immediate");
         if (!result) {
           pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not sent. Reconnect and try again.") }, false);
