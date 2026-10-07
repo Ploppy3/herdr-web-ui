@@ -18,6 +18,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A double-click returns to the default width. The width is remembered on each device, and the
   sidebar never takes more than half the window.
   ([#521](https://github.com/devswha/herdr-web-ui/pull/521))
+- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
+  Herdr encodes held combinations with arrows, special keys and direct typing for
+  the pane's keyboard protocol. Modifiers clear when leaving
+  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
+  Queued terminal chords and text are cancelled when the sender leaves their attachment or
+  its terminal is replaced.
+  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot,
+  [#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- Settings can add, remove and reorder every mobile terminal key and register custom key
+  combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
+  and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
+  and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
 - The message box follows **Settings → Chat font size**, as the transcript and prompt cards
@@ -76,18 +88,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   when it is set) or the `OPENCODE_API_KEY` variable. An OpenCode key without a Go
   subscription shows no meter.
   ([#444](https://github.com/devswha/herdr-web-ui/pull/444) by @diogo7dias)
-- The mobile terminal key bar has sticky Ctrl, Alt and Shift toggles and an Enter key.
-  Herdr encodes held combinations with arrows, special keys and direct typing for
-  the pane's keyboard protocol. Modifiers clear when leaving
-  the pane or disconnecting. Pasted text and submitted drafts keep their contents.
-  Queued terminal chords and text are cancelled when the sender leaves their attachment or
-  its terminal is replaced.
-  ([#433](https://github.com/devswha/herdr-web-ui/pull/433) by @nickadminroot,
-  [#508](https://github.com/devswha/herdr-web-ui/pull/508))
-- Settings can add, remove and reorder every mobile terminal key and register custom key
-  combinations in a separate key bar editor. Existing extra-key preferences keep their layout,
-  and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
-  and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ### Changed
 - The README answers common questions about installation, Windows support, phone access,
