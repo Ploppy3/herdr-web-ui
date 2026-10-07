@@ -185,7 +185,7 @@ describe("machine snapshot refresh races", () => {
     const { manager, drive, local } = await fixture();
     await manager.refreshLocal();
     // what the collector has heard so far is what the roster shows
-    manager.localAgents(snapshot("idle").panes, true);
+    manager.localAgents(snapshot("idle").panes);
     await until(() => !drive.localBusy && manager.list()[0]?.snapshot?.panes[0]?.agent === "codex");
     const before = local.calls();
     // another agent starts there: herdr names it in a status event, and the frame that tells pages of it names none
@@ -193,28 +193,33 @@ describe("machine snapshot refresh races", () => {
     manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }]);
     await until(() => manager.list()[0]?.snapshot?.panes[0]?.agent === "opencode");
     expect(local.calls()).toBe(before + 1);
-    // said again, it is no news: nothing is read
+    // said again, in an event or a snapshot, it is no news: nothing is read
     manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }]);
-    manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }], true);
+    manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }, { pane_id: "fixture:p2", agent: null }]);
     await until(() => !drive.localBusy);
     expect(local.calls()).toBe(before + 1);
   });
 
-  it("reads the roster again for a pane first heard of with an agent, and forgets a pane that is gone", async () => {
+  it("hears a pane's agent anew once the pane has gone: its id used again by the same agent is read at once", async () => {
     const { manager, drive, local } = await fixture();
     await manager.refreshLocal();
-    const before = local.calls();
-    // a pane first heard of as a shell is what the roster's own read of it showed
-    manager.localAgents([{ pane_id: "fixture:p2", agent: null }]);
+    manager.localAgents(snapshot("idle").panes);
     await until(() => !drive.localBusy);
-    expect(local.calls()).toBe(before);
-    // one first heard of with an agent may have got it after that read
-    manager.localAgents(snapshot("idle").panes, true);
-    await until(() => local.calls() === before + 1 && !drive.localBusy);
-    // fixture:p1 closed and its id comes back with the same agent: heard of anew
-    manager.localAgents([], true);
-    manager.localAgents(snapshot("idle").panes, true);
-    await until(() => local.calls() === before + 2 && !drive.localBusy);
+    // the pane closes: the roster no longer lists it
+    local.set({ ...snapshot("idle"), panes: [] });
+    await manager.refreshLocal();
+    const closed = local.calls();
+    // the id comes back with the same agent: news again
+    local.set(snapshot("idle"));
+    manager.localAgents(snapshot("idle").panes);
+    await until(() => manager.list()[0]?.snapshot?.panes[0]?.agent === "codex" && !drive.localBusy);
+    expect(local.calls()).toBe(closed + 1);
+    // so is one that ended, before any roster was read without it
+    manager.localMessage({ type: "pane-exited", pane_id: "fixture:p1" });
+    await until(() => !drive.localBusy);
+    const ended = local.calls();
+    manager.localAgents(snapshot("idle").panes);
+    await until(() => local.calls() === ended + 1 && !drive.localBusy);
   });
 
   it("keeps a newer remote status and retries the invalidated HTTP snapshot", async () => {

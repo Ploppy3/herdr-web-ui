@@ -963,8 +963,9 @@ export function createServer(
       if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;
       // another agent took an OmO pane: what OmO worked on there is not that agent's to finish
       if (omo.named(paneId, agent)) completions.forget(paneId);
-      // the frame below names no agent: one herdr names anew is read into the roster now
-      machines?.localAgents([{ pane_id: paneId, agent }]);
+      // the frame below names no agent: one herdr names anew is read into the roster now. An OmO
+      // pane is `omo` in every snapshot, whatever herdr calls it in an event
+      machines?.localAgents([{ pane_id: paneId, agent: omo.runs(paneId) ? "omo" : agent }]);
       // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
       if (omo.tracks(paneId)) return;
       // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
@@ -984,11 +985,10 @@ export function createServer(
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: "idle" });
       push.onStatus(paneId, "idle").catch(logPushError);
     },
-    onBaseline: (panes) => {
-      push.seed(panes);
-      // a pane created a moment ago got its agent after the roster's own read of it
-      machines?.localAgents(panes, true);
-    },
+    onBaseline: (panes) => push.seed(panes),
+    // a pane created a moment ago got its agent after the roster's own read of it. After the
+    // snapshot's replays: a roster read before them could show a finish ahead of its status frame
+    onReconciled: (panes) => machines?.localAgents(panes),
     // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
     // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
