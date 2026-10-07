@@ -87,6 +87,27 @@ describe("pending message ownership", () => {
     restored.end("pc:pane", "h");
     expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "held"]]);
   });
+  it("keeps a copy being sent again not confirmed through another row's write", () => {
+    const port = storage(), live = new PendingMessageStore(() => port);
+    live.accept("pc:pane", message("a", "held"), "connection-1");
+    live.accept("pc:pane", message("b", "held"), "connection-1");
+    const restored = new PendingMessageStore(() => port);
+    expect(restored.begin("pc:pane", "a")).toBe(true);
+    restored.unconfirm("pc:pane", "a");
+    restored.removeCopy("pc:pane", "b");
+    expect(restored.read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["a", "held"]]);
+    expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["a", "uncertain"]]);
+  });
+  it("keeps another tab's saved message when a held copy is marked before that tab's storage event", () => {
+    const port = storage(), seed = new PendingMessageStore(() => port);
+    seed.accept("pc:pane", message("h", "held"), "connection-0");
+    const first = new PendingMessageStore(() => port), second = new PendingMessageStore(() => port);
+    first.read("pc:pane"); second.read("pc:pane");
+    second.accept("pc:pane", message("y"), "connection-b");
+    expect(first.begin("pc:pane", "h")).toBe(true);
+    first.unconfirm("pc:pane", "h");
+    expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "uncertain"], ["y", "uncertain"]]);
+  });
   it("keeps unsaved text in memory when storage fails", () => {
     const store = new PendingMessageStore(() => ({ getItem: () => null, setItem: () => { throw new Error("full"); }, removeItem: () => { throw new Error("full"); } }));
     store.accept("p", message("a"), "scope");

@@ -14,6 +14,8 @@ export class PendingMessageStore {
   private saved = new Map<string, string | null>();
   private unsaved = new Set<string>();
   private busy = new Set<string>();
+  /** rows saved as not confirmed while they are shown as they were (unconfirm) */
+  private unconfirmed = new Set<string>();
   private listeners = new Set<() => void>();
   constructor(private storage: () => StoragePort = () => window.localStorage) {}
   subscribe = (listener: () => void): (() => void) => {
@@ -70,7 +72,8 @@ export class PendingMessageStore {
   private write(owner: string, messages: PendingMessageView[]): void {
     this.rows.set(owner, messages);
     try {
-      const raw = messages.length ? JSON.stringify({ version: 1, messages: messages.map(({ serverOwned: _, ...message }) => message) }) : null;
+      const raw = messages.length ? JSON.stringify({ version: 1, messages: messages.map(({ serverOwned: _, ...message }) =>
+        this.unconfirmed.has(`${owner}\0${message.id}`) ? { ...message, state: "uncertain" } : message) }) : null;
       if (raw === null) this.storage().removeItem(PREFIX + owner); else this.storage().setItem(PREFIX + owner, raw);
       this.saved.set(owner, raw);
       this.unsaved.delete(owner);
@@ -146,24 +149,27 @@ export class PendingMessageStore {
    * a new submission with no receipt of its own: a reload before its answer must not offer it once more.
    */
   unconfirm(owner: string, id: string): void {
-    try {
-      const raw = JSON.stringify({ version: 1, messages: this.read(owner).map(({ serverOwned: _, ...message }) => message.id === id ? { ...message, state: "uncertain" } : message) });
-      this.storage().setItem(PREFIX + owner, raw);
-      this.saved.set(owner, raw);
-    } catch { this.unsaved.add(owner); this.notify(); }
+    // another tab may have saved a message since this one last read the list
+    this.refresh(owner);
+    // every write until the answer keeps the mark, also one made for another row
+    this.unconfirmed.add(`${owner}\0${id}`);
+    this.write(owner, this.read(owner));
   }
   end(owner: string, id: string): void {
+    this.unconfirmed.delete(`${owner}\0${id}`);
     this.busy.delete(`${owner}\0${id}`);
     this.rows.set(owner, [...this.read(owner)]);
     this.notify();
   }
   fail(owner: string, id: string, error: { code: string; message: string }, uncertain: boolean): void {
+    this.unconfirmed.delete(`${owner}\0${id}`);
     this.write(owner, this.read(owner).map((message) => message.id === id ? { ...message, error,
       state: uncertain ? "uncertain" : message.serverOwned ? message.state : "held" } : message));
   }
   removeCopy(owner: string, id: string): void {
     if (this.read(owner).some((message) => message.id === id && message.serverOwned)) return;
     this.scopes.get(owner)?.delete(id);
+    this.unconfirmed.delete(`${owner}\0${id}`);
     this.write(owner, this.read(owner).filter((message) => message.id !== id));
   }
 }
