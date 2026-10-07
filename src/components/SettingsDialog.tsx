@@ -225,7 +225,8 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, herdrVer
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      // an Escape that cancels an IME composition (the editor's Character field) is the IME's
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       if (keyBarOpen) setKeyBarOpen(false);
       else onClose();

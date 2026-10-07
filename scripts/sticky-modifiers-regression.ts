@@ -4,14 +4,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { chromium, type Browser } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { workspaceCreate, workspaceClose, paneSendText, paneSendKeys, paneRead } from "../server/herdr/client.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-sticky-qa-"));
 const owned: string[] = [];
 const server = createServer({ port: 0, stateDir: join(root, "state"), token: "" });
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+// launched inside the try: a missing Chrome must still stop the server and remove the temp directory
+let launched: Browser | undefined;
 const errors: string[] = [];
 const evidence = process.env.UI_EVIDENCE_DIR;
 if (evidence) mkdirSync(evidence, { recursive: true });
@@ -23,6 +24,7 @@ async function until(check: () => boolean | Promise<boolean>, label: string) {
   }
 }
 try {
+  const browser = launched = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   for (const mode of ["legacy", "kitty"] as const) {
     const made = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-sticky-${mode}`, focus: false });
     owned.push(made.workspace.workspace_id);
@@ -218,7 +220,7 @@ try {
   }
   assert.deepEqual(errors, []);
 } finally {
-  await browser.close(); server.stop();
+  await launched?.close(); server.stop();
   for (const id of owned) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 }
