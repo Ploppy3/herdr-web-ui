@@ -278,6 +278,47 @@ try {
         assert.deepEqual(await keysOf(page), ["direct", "Escape", "Tab", "Control", "Alt", "Shift", "Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ctrl-c"]);
         assert.deepEqual(errors, []);
         console.log("PASS an empty key list keeps the keyboard mode toggle usable, persists, and can restore the defaults");
+
+        // The frames above go to an agent pane, which the demo never types into. Its shell must
+        // answer a chord as a terminal would: the demo has no herdr to turn the names into keys.
+        const shell = await context.newPage();
+        shell.on("pageerror", (error) => errors.push(error.message));
+        await shell.goto(`http://127.0.0.1:${server.port}/herdr-web-ui/demo/app/?pane=${encodeURIComponent(panes.shell)}`);
+        await ready(shell);
+        const shellBar = shell.locator(".key-bar");
+        const screen = (): Promise<string> => shell.evaluate(() => (document.querySelector(".pane-terminal .xterm-rows")?.textContent ?? "").replaceAll("\u00a0", " "));
+        const shows = async (wanted: string): Promise<void> => {
+          const deadline = Date.now() + 5_000;
+          while (!(await screen()).includes(wanted)) {
+            assert.ok(Date.now() < deadline, `the demo shell shows ${JSON.stringify(wanted)}; it shows ${JSON.stringify((await screen()).trim())}`);
+            await Bun.sleep(50);
+          }
+        };
+        // the shell first replays a recorded session, with the gaps between its frames capped at
+        // half a second: typing before it ends is drawn over by the frames that follow
+        let replayed = "";
+        let replayedSince = Date.now();
+        const replayDeadline = Date.now() + 15_000;
+        while (Date.now() - replayedSince < 1_000) {
+          assert.ok(Date.now() < replayDeadline, "the demo shell's replay comes to rest");
+          const now = await screen();
+          if (now !== replayed || now.trim() === "") { replayed = now; replayedSince = Date.now(); }
+          await Bun.sleep(50);
+        }
+        await shell.locator(".xterm-helper-textarea").focus();
+        await shell.keyboard.insertText("ls");
+        await shows("$ ls");
+        await shellBar.locator('[data-key="Shift"]').tap();
+        await shellBar.locator('[data-key="Enter"]').tap();
+        await shows("package.json");
+        await shell.keyboard.insertText("q");
+        await shows("$ Q");
+        await shellBar.locator('[data-key="Shift"]').tap();
+        await shellBar.locator('[data-key="Control"]').tap();
+        await shell.keyboard.insertText("c");
+        await shows("^C");
+        assert.deepEqual(errors, []);
+        console.log("PASS the demo's shell runs a line on Shift+Enter, types a held Shift's capital and takes Ctrl+C from the held modifier");
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { server.stop(); }
