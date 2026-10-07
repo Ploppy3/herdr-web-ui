@@ -69,6 +69,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Codex chat hides internal memory citation blocks and pairs the answer with its display record,
   so a reply that uses memory appears once without raw citation markup. Quoted code examples
   keep their text. ([#514](https://github.com/devswha/herdr-web-ui/pull/514) by @JJLiebig)
+- **Dismiss** on the terminal's notice that input was not sent works: a tap or click on it went
+  through to the terminal under it and the notice stayed.
+  ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
 
 ## [0.3.52] - 2026-10-06
 

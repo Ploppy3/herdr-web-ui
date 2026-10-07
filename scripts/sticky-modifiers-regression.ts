@@ -208,6 +208,14 @@ try {
     await until(async () => !(await ctrl.isDisabled()), "terminal lens ready again");
     for (const key of ["Control", "Alt", "Shift"]) assert.equal(await page.locator(`[data-key="${key}"]`).getAttribute("aria-pressed"), "false");
     previousMask = 0;
+    // A cancelled chord or text says so in a banner. The banner column lets taps through to the
+    // terminal under it, so its Dismiss has to take them back.
+    ws!.send(JSON.stringify({ type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: pane }));
+    const refused = page.locator(".terminal-banner", { hasText: "Terminal input could not be confirmed" });
+    await refused.waitFor();
+    await refused.getByRole("button", { name: "Dismiss", exact: true }).tap({ timeout: 5_000 });
+    await refused.waitFor({ state: "hidden" });
+    assert.equal(await ctrl.isDisabled(), false, "a refused key leaves the pane ready for the next one");
     await input.focus();
     await held(7);
     // Disconnect clears all modifiers and sends no retained shortcuts on reconnect.
