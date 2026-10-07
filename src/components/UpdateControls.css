@@ -55,6 +55,11 @@
   overflow-wrap: anywhere;
 }
 
+/* focused from code when a button points at the section: it is where reading starts, not a control */
+.settings-updates:focus {
+  outline: none;
+}
+
 /* a release's notes: read in a box of their own, so a long release does not push the
    buttons out of the dialog */
 .update-notes {

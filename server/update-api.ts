@@ -1,4 +1,4 @@
-import { noUpdateNotes, unmanagedUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
+import { noUpdateNotes, readUpdateNotes, unmanagedUpdateStatus, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { jsonResponse } from "./http.ts";
 
 export interface UpdateService {
@@ -14,11 +14,11 @@ export function connectUpdater(): UpdateService {
   let notes = noUpdateNotes();
   if (process.send && process.env["HERDR_WEB_MANAGED"] === "1") {
     process.on("message", (message: unknown) => {
-      const value = message as { type?: string; status?: UpdateStatus; notes?: UpdateNotes };
+      const value = message as { type?: string; status?: UpdateStatus; notes?: unknown };
       if (value?.type !== "update-status" || !value.status) return;
       status = value.status;
       // a supervisor older than the notes sends none: the one being replaced, or a fallback
-      notes = Array.isArray(value.notes?.releases) ? value.notes : noUpdateNotes();
+      notes = readUpdateNotes(value.notes);
     });
     process.send({ type: "update-status-request" });
   }

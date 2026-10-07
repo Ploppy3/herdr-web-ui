@@ -92,6 +92,8 @@ try {
     const box = element.getBoundingClientRect();
     return box.top >= 0 && box.bottom <= window.innerHeight;
   }), "What's new did not open Settings on the release notes");
+  // and the focus is there with it: the next Tab must not scroll back to the top of Settings
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("settings-updates")), true);
   await page.screenshot({ path: join(evidence, "notes-desktop.png") });
   console.log("PASS release notes beside the offered update, and from the header line");
   await installButton.click();
@@ -111,7 +113,8 @@ try {
   assert.equal(await page.locator(".update-notice").count(), 0);
 
   writeFileSync(join(upstream, "server/index.ts"), `throw new Error('QA startup failure');\n${readFileSync(join(upstream, "server/index.ts"), "utf8")}`);
-  cut("99.0.1", "\n### Fixed\n- A release that fails to start.\n");
+  // its notes hold a line no one wrote by hand: they are text from a Git remote, and must not take the app down
+  cut("99.0.1", `\n### Fixed\n- A release that fails to start.\n\n${">".repeat(30_000)} quoted beyond reason\n`);
   await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA failed startup"); await git(upstream, "tag", "v99.0.1");
   await page.getByRole("button", { name: "Check for updates", exact: true }).click();
   await until(() => installButton.isEnabled(), "Rollback candidate never became available");

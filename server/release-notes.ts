@@ -1,11 +1,14 @@
 /** What an update brings, read from the CHANGELOG.md of the release it installs. */
-import { noUpdateNotes, type ReleaseNote, type UpdateNotes } from "../shared/update.ts";
+import type { ReleaseNote, UpdateNotes } from "../shared/update.ts";
 
 /** `## [0.3.52] - 2026-10-06`; `## [Unreleased]` is no release. */
 const SECTION = /^## \[(\d+\.\d+\.\d+)\](?:\s+-\s+(\S+))?\s*$/;
 /** `[0.3.52]: https://…`, the compare links under the last section */
 const LINK_DEFINITION = /^\[[^\]]+\]:\s/;
-/** Notes are read in a Settings box, not as the whole history: a jump over many releases names the rest by count. */
+/**
+ * Notes are read in a Settings box, not as the whole history: a jump over many releases names
+ * the rest by count. Characters, since it bounds what is read, not what is sent.
+ */
 export const NOTES_BUDGET = 48_000;
 
 function triple(version: string): [number, number, number] | null {
@@ -26,7 +29,8 @@ function sections(changelog: string): ReleaseNote[] {
     open = null;
   };
   for (const line of changelog.split(/\r?\n/)) {
-    if (line.startsWith("## ")) {
+    // `## [` opens the next release or Unreleased; another level-two heading (`## Migration`) belongs to the notes
+    if (line.startsWith("## [")) {
       close();
       const match = SECTION.exec(line);
       if (match) open = { version: match[1]!, date: match[2] ?? null, lines: [] };
@@ -41,9 +45,9 @@ function sections(changelog: string): ReleaseNote[] {
  * running version, the latest release alone. A release without a section, or with an empty one,
  * is left out.
  */
-export function releaseNotes(changelog: string, current: string | null, latest: string, budget = NOTES_BUDGET): UpdateNotes {
+export function releaseNotes(changelog: string, current: string | null, latest: string, budget = NOTES_BUDGET): Omit<UpdateNotes, "revision"> {
   const to = triple(latest);
-  if (!to) return noUpdateNotes();
+  if (!to) return { releases: [], omitted: 0 };
   const from = current === null ? null : triple(current);
   const wanted = sections(changelog)
     .filter((section) => {

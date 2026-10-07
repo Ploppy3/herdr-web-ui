@@ -359,6 +359,7 @@ export const ZH: Record<string, string> = {
   "What's new": "更新内容",
   "Earlier releases not shown here: {count}.": "此处未显示的更早版本：{count} 个。",
   "Full changelog": "完整更新日志",
+  "These notes could not be shown.": "无法显示这些说明。",
   "Up to date.": "已是最新版本。",
   "Waiting for an update check…": "正在等待检查更新…",
   "Checks for new releases every 5 minutes.": "每 5 分钟检查一次新版本。",

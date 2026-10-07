@@ -355,6 +355,7 @@ export const KO: Record<string, string> = {
   "What's new": "업데이트 내용",
   "Earlier releases not shown here: {count}.": "여기에 표시되지 않은 이전 릴리스: {count}개.",
   "Full changelog": "전체 변경 내역",
+  "These notes could not be shown.": "이 노트를 표시할 수 없습니다.",
   "Up to date.": "최신 상태입니다.",
   "Waiting for an update check…": "업데이트 확인을 기다리는 중…",
   "Checks for new releases every 5 minutes.": "5분마다 새 릴리스를 확인합니다.",

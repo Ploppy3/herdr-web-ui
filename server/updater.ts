@@ -159,8 +159,8 @@ export class Updater {
    * (or with one that cannot be read) is offered without notes.
    */
   private async changes(revision: string, version: string): Promise<UpdateNotes> {
-    try { return releaseNotes(await this.git("show", `${revision}:CHANGELOG.md`), this.status.current_version, version); }
-    catch { return noUpdateNotes(); }
+    try { return { revision, ...releaseNotes(await this.git("show", `${revision}:CHANGELOG.md`), this.status.current_version, version) }; }
+    catch { return { ...noUpdateNotes(), revision }; }
   }
 
   /** herdr's plugin checkout is shallow: fetch the missing history once before calling two commits unrelated. */

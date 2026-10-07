@@ -357,6 +357,7 @@ export const JA: Record<string, string> = {
   "What's new": "更新内容",
   "Earlier releases not shown here: {count}.": "ここに表示されていない以前のリリース: {count} 件。",
   "Full changelog": "すべての変更履歴",
+  "These notes could not be shown.": "このノートを表示できませんでした。",
   "Up to date.": "最新の状態です。",
   "Waiting for an update check…": "更新の確認を待っています…",
   "Checks for new releases every 5 minutes.": "5 分ごとに新しいリリースを確認します。",

@@ -41,6 +41,8 @@ export interface ReleaseNote {
  * kept out of the status, which is polled.
  */
 export interface UpdateNotes {
+  /** the commit of the release these notes were read from, the status's `latest_revision` then; null when no update is offered */
+  revision: string | null;
   /** every release after the running one, up to the latest, newest first; empty when no update is offered or its changelog has no section for it */
   releases: ReleaseNote[];
   /** older releases the update also brings, left out for length */
@@ -48,7 +50,27 @@ export interface UpdateNotes {
 }
 
 export function noUpdateNotes(): UpdateNotes {
-  return { releases: [], omitted: 0 };
+  return { revision: null, releases: [], omitted: 0 };
+}
+
+/**
+ * Notes as another process or another version sent them (the supervisor over IPC, the server
+ * over HTTP). Anything that is not in shape is no notes: they are drawn as they are.
+ */
+export function readUpdateNotes(value: unknown): UpdateNotes {
+  const notes = value as Partial<Record<keyof UpdateNotes, unknown>> | null | undefined;
+  if (typeof notes !== "object" || notes === null || !Array.isArray(notes.releases)) return noUpdateNotes();
+  const releases: ReleaseNote[] = [];
+  for (const entry of notes.releases as Array<Partial<Record<keyof ReleaseNote, unknown>> | null>) {
+    if (typeof entry?.version !== "string" || typeof entry.notes !== "string") return noUpdateNotes();
+    if (entry.date !== null && typeof entry.date !== "string") return noUpdateNotes();
+    releases.push({ version: entry.version, date: entry.date, notes: entry.notes });
+  }
+  return {
+    revision: typeof notes.revision === "string" ? notes.revision : null,
+    releases,
+    omitted: typeof notes.omitted === "number" && Number.isSafeInteger(notes.omitted) && notes.omitted > 0 ? notes.omitted : 0,
+  };
 }
 
 export function unmanagedUpdateStatus(): UpdateStatus {

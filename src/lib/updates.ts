@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UpdateCommand, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
 import { fetchUpdateNotes, fetchUpdateStatus, requestUpdate } from "./api.ts";
-import { offeredNotes } from "./updateNotes.ts";
+import { notesRetryDelay, offeredNotes } from "./updateNotes.ts";
 import { usePageVisible } from "./visibility.ts";
 
 declare const __APP_REVISION__: string | null;
@@ -44,14 +44,29 @@ export function useUpdates(enabled: boolean) {
   // offeredNotes drops what does not belong to the release on offer
   const [fetched, setFetched] = useState<UpdateNotes | null>(null);
   const offered = enabled && status && status.latest_revision !== status.current_revision ? status.latest_revision : null;
+  // the release whose notes were answered, or refused for good: not asked for again
+  const settled = useRef<string | null>(null);
   useEffect(() => {
-    if (!enabled) { setFetched(null); return; }
-    if (!offered) return;
+    if (!enabled) { setFetched(null); settled.current = null; return; }
+    if (!offered || !visible || settled.current === offered) return;
     let live = true;
-    // a server older than the notes has no answer: the update is offered without them
-    fetchUpdateNotes().then((next) => { if (live) setFetched(next); }, () => {});
-    return () => { live = false; };
-  }, [enabled, offered]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      fetchUpdateNotes().then((next) => {
+        if (!live) return;
+        settled.current = offered;
+        setFetched(next);
+      }, (error: unknown) => {
+        if (!live) return;
+        const delay = notesRetryDelay(error, attempt);
+        // a server older than the notes has no answer: the update is offered without them
+        if (delay === null) settled.current = offered;
+        else timer = setTimeout(() => load(attempt + 1), delay);
+      });
+    };
+    load(0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [enabled, offered, visible]);
   const notes = offeredNotes(status, fetched);
 
   const request = useCallback(async (command: UpdateCommand) => {

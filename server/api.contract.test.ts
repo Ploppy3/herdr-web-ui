@@ -143,10 +143,10 @@ describe("update API", () => {
     const none = await fetch(`${base()}/api/updates/notes`);
     expect(none.status).toBe(200);
     expect(none.headers.get("cache-control")).toBe("no-store");
-    expect(await none.json()).toEqual({ releases: [], omitted: 0 });
+    expect(await none.json()).toEqual({ revision: null, releases: [], omitted: 0 });
     expect((await fetch(`${base()}/api/updates/notes`, { method: "POST", headers: { "x-herdr-update": "1" } })).status).toBe(405);
 
-    const notes: UpdateNotes = { releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 2 };
+    const notes: UpdateNotes = { revision: "b".repeat(40), releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 2 };
     const managedState = mkdtempSync(join(tmpdir(), "herdr-update-notes-"));
     const managed = createServer({ port: 0, stateDir: managedState,
       updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, available: true }), notes: () => notes, request() {} } });

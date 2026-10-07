@@ -205,9 +205,11 @@ export function SettingsDialog({ open, section = null, onClose, actions, updates
 
   useEffect(() => {
     if (!open) return;
-    firstControlRef.current?.focus();
-    // Updates is the last of a long list: a button that points at it opens on it
-    if (section === "updates") bodyRef.current?.querySelector(".settings-updates")?.scrollIntoView();
+    // Updates is the last of a long list: a button that points at it opens on it, and the
+    // focus goes there too, or the next Tab would scroll back to the top
+    const pointed = section === "updates" ? bodyRef.current?.querySelector<HTMLElement>(".settings-updates") : null;
+    if (pointed) { pointed.focus({ preventScroll: true }); pointed.scrollIntoView(); }
+    else firstControlRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       event.preventDefault();

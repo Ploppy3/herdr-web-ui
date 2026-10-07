@@ -65,6 +65,13 @@ describe("release notes of an update", () => {
     expect(notes.releases).toEqual([{ version: "0.3.7", date: "2026-10-03", notes: "First of the line." }]);
   });
 
+  it("keeps a heading of its own level inside a release: only a release or Unreleased ends a section", () => {
+    const log = "## [Unreleased]\n\n## Planned\n- Not yet.\n\n## [0.4.0] - 2026-10-07\n\n### Changed\n- A change.\n\n## Migration\n\nRun the thing.\n\n## [0.3.9]\n- Nine.\n";
+    expect(releaseNotes(log, "0.3.9", "0.4.0").releases).toEqual([
+      { version: "0.4.0", date: "2026-10-07", notes: "### Changed\n- A change.\n\n## Migration\n\nRun the thing." },
+    ]);
+  });
+
   it("tells the latest release alone when the running version is unknown", () => {
     expect(releaseNotes(CHANGELOG, null, "0.3.10").releases.map((release) => release.version)).toEqual(["0.3.10"]);
     expect(releaseNotes(CHANGELOG, "main", "0.3.10").releases.map((release) => release.version)).toEqual(["0.3.10"]);

@@ -5,6 +5,7 @@ import { runningAppVersion, runningHerdrVersion, staleClientVersion, versionLabe
 import { describeUpdate } from "../lib/updateProgress.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import { Markdown } from "./Markdown.tsx";
+import { RenderBoundary } from "./RenderBoundary.tsx";
 import "./Machines.css";
 import "./UpdateControls.css";
 import { useT } from "../lib/i18n.ts";
@@ -16,7 +17,8 @@ const CHANGELOG = "https://github.com/devswha/herdr-web-ui/blob/main/CHANGELOG.m
 /**
  * What the offered update brings: the changelog section of each release it installs, newest
  * first, as the release wrote it (English). It scrolls in its own box, so the buttons under
- * it stay in reach.
+ * it stay in reach. The text comes from the Git remote: a section that cannot be drawn says so
+ * and takes nothing else down with it.
  */
 function ReleaseNotes({ notes }: { notes: UpdateNotes }) {
   const t = useT();
@@ -25,7 +27,9 @@ function ReleaseNotes({ notes }: { notes: UpdateNotes }) {
     <div className="update-notes" role="region" aria-label={t("What's new")} tabIndex={0}>
       {notes.releases.map((release) => <section key={release.version}>
         <h4>v{release.version}{release.date && <time>{release.date}</time>}</h4>
-        <Markdown>{release.notes}</Markdown>
+        <RenderBoundary resetKey={release.notes} fallback={() => <p className="settings-hint">{t("These notes could not be shown.")} <a href={CHANGELOG} target="_blank" rel="noopener noreferrer">{t("Full changelog")}</a></p>}>
+          <Markdown>{release.notes}</Markdown>
+        </RenderBoundary>
       </section>)}
       {notes.omitted > 0 && <p className="settings-hint">{t("Earlier releases not shown here: {count}.", { count: notes.omitted })} <a href={CHANGELOG} target="_blank" rel="noopener noreferrer">{t("Full changelog")}</a></p>}
     </div>
@@ -53,8 +57,9 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
   const { status, error, busy, needsReload, notes, request } = updates;
   const installing = busy && (status?.phase === "building" || status?.phase === "restarting");
   const tabVersion = staleClientVersion(status, __APP_VERSION__);
-  return <section className="settings-section settings-updates">
-    <h3>{t("Updates")}</h3>
+  // focusable from code only: a button that points here (the header line's) lands on it
+  return <section className="settings-section settings-updates" tabIndex={-1} aria-labelledby="settings-updates-title">
+    <h3 id="settings-updates-title">{t("Updates")}</h3>
     {/* always a version: the sidebar no longer carries one */}
     <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
     {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
