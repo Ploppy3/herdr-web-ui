@@ -1886,8 +1886,15 @@ export function createServer(
                 break;
               }
               await serialize(message.pane_id, async () => {
+                // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
+                // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
+                // pane's readiness, and the attach it holds by now has already been told it is ready
                 if (origin && (attachments.get(message.pane_id) !== origin || origin.pty !== pty
-                  || client.data.attached.get(message.pane_id) !== claim || !origin.clients.has(client) || !origin.ready)) {
+                  || client.data.attached.get(message.pane_id) !== claim || !origin.clients.has(client))) {
+                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
+                  return;
+                }
+                if (origin && !origin.ready) {
                   if (clients.has(client)) send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                   return;
                 }

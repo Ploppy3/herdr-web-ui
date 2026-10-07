@@ -84,9 +84,12 @@ async function queuedKeys(leave: "none" | "detach" | "replace" | "reattach" | "r
         expect(calls[1]).toEqual(["ctrl+alt+shift+left"]);
       }
     } else {
-      await until(() => texts.length > 0 || owner.seen.some((frame) => frame.type === "error" && frame.code === (input ? "input_failed" : "input_not_ready")));
+      // `input_failed` for a chord too: `input_not_ready` would make the client drop the readiness
+      // of the attach it holds by now (the "reattach" case was told `input-ready` before this)
+      await until(() => texts.length > 0 || owner.seen.some((frame) => frame.type === "error" && frame.code === "input_failed"));
       expect(calls).toEqual([["ctrl+right"]]);
       expect(texts).toEqual([]);
+      expect(owner.seen.filter((frame) => frame.type === "error").map((frame) => frame.code)).toEqual(["input_failed"]);
     }
   } finally {
     release();
