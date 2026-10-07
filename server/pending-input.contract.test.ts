@@ -52,6 +52,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 async function setup(label: string, agent = "claude", screen = "› Message\n", options: Parameters<typeof createServer>[0] = {}) {
   const id = ++next;
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>("workspace.create", { label: `herdr-web-ui-test-pending-${label}`, cwd: root, focus: false });
+  // registered before anything below can throw, so afterEach closes the workspace of a setup that failed
+  const entry: (typeof active)[number] = { stop: () => {}, sockets: [], workspace: created.workspace.workspace_id }; active.push(entry);
   const pane = created.root_pane.pane_id;
   const log = join(root, `${id}.jsonl`);
   const screenFile = join(root, `${id}.screen`);
@@ -61,8 +63,8 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
   while (!existsSync(log)) { if (Date.now() > deadline) throw new Error("recorder did not start"); await Bun.sleep(25); }
   await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent, state: "working" });
   const server = createServer({ ...options, port: 0, stateDir: join(root, `state-${id}`) });
-  const socket = new Socket(server.port);
-  const entry = { stop: server.stop, sockets: [socket], workspace: created.workspace.workspace_id }; active.push(entry);
+  entry.stop = server.stop;
+  const socket = new Socket(server.port); entry.sockets.push(socket);
   await socket.attach(pane);
   const bytes = () => readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as string).join("");
   const waitBytes = async (ending: string) => {
