@@ -148,6 +148,8 @@ export function PaneTerminal({
   const onRoleAckRef = useRef(onRoleAck);
   const [connected, setConnected] = useState(false);
   const pendingScopeRef = useRef<string | null>(null);
+  /** counts this terminal's disconnects: an answer belongs to the connection that was up when its request left */
+  const pendingEpochRef = useRef(0);
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -832,6 +834,7 @@ export function PaneTerminal({
     const offDisconnect = socket.onDisconnect(() => {
       if (pendingScopeRef.current !== null) pendingMessages.suspendScope(pendingScopeRef.current);
       pendingScopeRef.current = null;
+      pendingEpochRef.current++;
       outputGeneration++;
       setOutputReady(false);
       setInputReady(false);
@@ -1284,7 +1287,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return null;
-    const scope = pendingScopeRef.current;
+    // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
+    const epoch = pendingEpochRef.current;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
     if (sent === null) return null;
     term.scrollToBottom();
@@ -1305,7 +1309,7 @@ export function PaneTerminal({
       }
       if (!result.ok) return result;
       if (result.pending) {
-        pendingMessages.accept(owner, result.pending, socketRef.current === socket && socket.connected && pendingScopeRef.current === scope && paneRef.current === pane ? scope : null);
+        pendingMessages.accept(owner, result.pending, socketRef.current === socket && socket.connected && pendingEpochRef.current === epoch && paneRef.current === pane ? pendingScopeRef.current : null);
       } else {
         if (paneRef.current === pane) {
           if (delivery === "queue") setChatSent((current) => current + 1);
@@ -1515,6 +1519,7 @@ export function PaneTerminal({
       } else if (action === "discard") {
         pendingMessages.removeCopy(owner, id);
       } else if (message.state === "held") {
+        pendingMessages.unconfirm(owner, id);
         const result = submitComposerMessage(message.text, "immediate");
         if (!result) {
           pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not sent. Reconnect and try again.") }, false);

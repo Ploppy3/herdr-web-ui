@@ -66,6 +66,27 @@ describe("pending message ownership", () => {
     own.refresh("p");
     expect(own.read("p")[0]!.serverOwned).toBe(true);
   });
+  it("keeps another tab's saved message when a removal receipt arrives before that tab's storage event", () => {
+    const port = storage(), first = new PendingMessageStore(() => port), second = new PendingMessageStore(() => port);
+    first.accept("pc:pane", message("x"), "connection-a");
+    second.read("pc:pane");
+    second.accept("pc:pane", message("y"), "connection-b");
+    first.publish("pc:pane", [], [{ id: "x", outcome: "sent" }], "connection-a");
+    expect(first.read("pc:pane").map((item) => item.id)).toEqual(["y"]);
+    expect(new PendingMessageStore(() => port).read("pc:pane").map((item) => item.id)).toEqual(["y"]);
+  });
+  it("saves a held copy as not confirmed while it is sent again, and as held once that is refused", () => {
+    const port = storage(), live = new PendingMessageStore(() => port);
+    live.accept("pc:pane", message("h", "held"), "connection-1");
+    const restored = new PendingMessageStore(() => port);
+    expect(restored.begin("pc:pane", "h")).toBe(true);
+    restored.unconfirm("pc:pane", "h");
+    expect(restored.read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "held"]]);
+    expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "uncertain"]]);
+    restored.fail("pc:pane", "h", { code: "agent_blocked", message: "menu" }, false);
+    restored.end("pc:pane", "h");
+    expect(new PendingMessageStore(() => port).read("pc:pane").map(({ id, state }) => [id, state])).toEqual([["h", "held"]]);
+  });
   it("keeps unsaved text in memory when storage fails", () => {
     const store = new PendingMessageStore(() => ({ getItem: () => null, setItem: () => { throw new Error("full"); }, removeItem: () => { throw new Error("full"); } }));
     store.accept("p", message("a"), "scope");

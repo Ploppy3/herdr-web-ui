@@ -114,6 +114,8 @@ export class PendingMessageStore {
     }
     // An empty new-connection snapshot is not evidence that saved text was delivered.
     if (deleted.size) {
+      // another tab may have saved a message since this one last read the list: the write below keeps it
+      this.refresh(owner);
       for (const id of deleted) proofs?.delete(id);
       if (proofs?.size === 0) this.scopes.delete(owner);
       this.write(owner, this.read(owner).filter((message) => !deleted.has(message.id)));
@@ -138,6 +140,17 @@ export class PendingMessageStore {
     this.rows.set(owner, [...this.read(owner)]);
     this.notify();
     return true;
+  }
+  /**
+   * Saves a row as not confirmed while what is shown stays as it is. A held copy sent again is
+   * a new submission with no receipt of its own: a reload before its answer must not offer it once more.
+   */
+  unconfirm(owner: string, id: string): void {
+    try {
+      const raw = JSON.stringify({ version: 1, messages: this.read(owner).map(({ serverOwned: _, ...message }) => message.id === id ? { ...message, state: "uncertain" } : message) });
+      this.storage().setItem(PREFIX + owner, raw);
+      this.saved.set(owner, raw);
+    } catch { this.unsaved.add(owner); this.notify(); }
   }
   end(owner: string, id: string): void {
     this.busy.delete(`${owner}\0${id}`);

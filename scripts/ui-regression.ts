@@ -85,11 +85,21 @@ try {
   const agentRow = (paneId: string) => page.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneId}"]`);
   let holdSubmitResult = false;
   let releaseSubmitResult: (() => void) | null = null;
+  // a connection's first frame held back: what the page does between a reconnect and its snapshot
+  let holdSnapshot = false;
+  let releaseSnapshot: (() => void) | null = null;
+  const routed: Array<{ close: () => Promise<void> }> = [];
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    routed.push(socket);
     const upstream = socket.connectToServer();
     upstream.onMessage((raw) => {
       const message = JSON.parse(String(raw));
-      if (holdSubmitResult && message.type === "submit-result") {
+      if (holdSnapshot && message.type === "snapshot") {
+        holdSnapshot = false;
+        const release = () => { socket.send(raw); releaseSnapshot = null; };
+        releaseSnapshot = release;
+        releases.push(release);
+      } else if (holdSubmitResult && message.type === "submit-result") {
         holdSubmitResult = false;
         const release = () => { socket.send(raw); releaseSubmitResult = null; };
         releaseSubmitResult = release;
@@ -560,6 +570,23 @@ try {
   await until(() => pendingBytes() === `\u001b[200~${queuedTexts[0]}\u001b[201~\r\u001b`, "Escape with a draft stops the working agent");
   assert.equal(await composer.inputValue(), "a draft while the agent works", "Escape leaves the draft in the box");
   await composer.fill("");
+  // a follow-up sent between a reconnect and its snapshot is the new connection's own row, not an unconfirmed copy
+  const sentBeforeSnapshot = inputs.length;
+  holdSnapshot = true;
+  await routed.at(-1)!.close();
+  await until(() => releaseSnapshot !== null, "the reconnect's snapshot was held back");
+  await pendingReady(pendingPane);
+  assert.equal(await page.locator('.pending-message[data-state="uncertain"]').count(), 2, "the lost connection's rows are no longer its own");
+  await composer.fill("sent before the snapshot");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  assert.equal(inputs.length, sentBeforeSnapshot, "the message waits for the snapshot that says what the bridge supports");
+  releaseSnapshot!();
+  await until(async () => await page.locator('.pending-message[data-state="queued"]').count() === 1, "the message sent before the snapshot is a live pending row");
+  assert.equal(inputs.at(-1)?.delivery, "queue");
+  assert.equal(await page.locator(".composer-note").count(), 0);
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await until(async () => await pendingRows.count() === 2, "the live row was discarded on the bridge");
+  assert.equal(pendingBytes(), `\u001b[200~${queuedTexts[0]}\u001b[201~\r\u001b`);
   await page.reload(); await page.locator(".conn-live").waitFor();
   await until(async () => await pendingRows.count() === 2, "saved pending copies restored");
   assert.deepEqual(await pendingRows.locator(".pending-message-bubble").allTextContents(), queuedTexts.slice(1));
