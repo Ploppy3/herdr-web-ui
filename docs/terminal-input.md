@@ -25,7 +25,7 @@ Chat Send during work asks a `pending-input` bridge to retain an identified mess
 current response ends. The same server ID is claimed by automatic delivery or a pending row's
 explicit send-now action. The bridge checks its original connection, attachment, agent and
 visible prompt before input and Enter; each automatic next message also waits for evidence that
-the preceding turn started and finished. It never sends native Tab and then resends that text.
+the preceding turn started and finished, and an explicit send refused in between does not end that wait. It never sends native Tab and then resends that text.
 Pending acceptance is distinct from a committing-key receipt. Connection loss, pane separation
 and observe mode pause the pending list; reconnect or reload cannot rearm it. Losing a pane
 lease permanently cancels its in-flight send, even if that connection rejoins the same attachment

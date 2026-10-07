@@ -113,6 +113,40 @@ describe("bridge pending input", () => {
     f.queue.status("p1", "unknown"); expect(f.queue.next("p1")).toBeNull();
   });
 
+  it("keeps an earlier send's unconfirmed turn when a later explicit send is refused before its key", () => {
+    const f = fixture(); const first = f.enqueue(1); const second = f.enqueue(2); const third = f.enqueue(3);
+    f.queue.status("p1", "idle");
+    expect(f.queue.claim(first, true)).toBe(true); f.queue.committing(first); f.queue.settle(first);
+    expect(f.queue.claim(second, false)).toBe(true);
+    f.queue.settle(second, { code: "pending_lease_lost", message: "lost" });
+    expect(second.message.state).toBe("held");
+    expect(f.queue.next("p1")).toBeNull();
+    f.queue.status("p1", "working"); f.queue.status("p1", "done");
+    expect(f.queue.next("p1")).toBe(third);
+  });
+
+  it("counts the earlier turn's cycle seen while a later explicit send was being checked", () => {
+    const f = fixture(); const first = f.enqueue(1); const second = f.enqueue(2); const third = f.enqueue(3);
+    f.queue.status("p1", "idle");
+    expect(f.queue.claim(first, true)).toBe(true); f.queue.committing(first); f.queue.settle(first);
+    expect(f.queue.claim(second, false)).toBe(true);
+    f.queue.status("p1", "working"); f.queue.status("p1", "done");
+    expect(f.queue.next("p1")).toBeNull();
+    f.queue.settle(second, { code: "agent_blocked", message: "menu" });
+    expect(f.queue.next("p1")).toBe(third);
+  });
+
+  it("still holds the rest when the earlier turn never starts, whatever a refused explicit send did", () => {
+    const f = fixture(); const first = f.enqueue(1); const second = f.enqueue(2); const third = f.enqueue(3);
+    f.queue.status("p1", "idle");
+    expect(f.queue.claim(first, true)).toBe(true); f.queue.committing(first); f.queue.settle(first);
+    expect(f.queue.claim(second, false)).toBe(true);
+    f.queue.settle(second, { code: "pending_lease_lost", message: "lost" });
+    f.advance(100);
+    expect(third.message.state).toBe("held");
+    expect(third.message.error?.code).toBe("pending_turn_unconfirmed");
+  });
+
   it("ignores another turn's pre-key cycle and waits for the committed message's own cycle", () => {
     const f = fixture(); const first = f.enqueue(1); const second = f.enqueue(2);
     f.queue.status("p1", "idle"); f.queue.claim(first, true);

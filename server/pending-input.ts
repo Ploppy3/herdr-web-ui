@@ -11,7 +11,8 @@ export interface PendingRecord<Owner, Lease> {
 }
 type Fault = { code: string; message: string };
 type Removed = { id: string; outcome: "sent" | "discarded" };
-interface TurnGate { committed: boolean; sawWorking: boolean; completed: boolean; deadline: number | null }
+/** `by`: the message whose send opened the gate */
+interface TurnGate { by: string; committed: boolean; sawWorking: boolean; completed: boolean; deadline: number | null }
 const ready = (status: AgentStatus | undefined) => status === "idle" || status === "done";
 export const PENDING_START_TIMEOUT_MS = 10_000;
 export const MAX_PENDING_PER_OWNER = 32;
@@ -92,7 +93,9 @@ export class PendingInputs<Owner, Lease> {
       || [...this.records.values()].some((other) => other.paneId === item.paneId && other.inFlight)
       || (automatic ? this.next(item.paneId) !== item : !["queued", "held"].includes(item.message.state))) return false;
     item.message.state = "sending"; delete item.message.error; item.inFlight = true;
-    this.gates.set(item.paneId, { committed: false, sawWorking: false, completed: false, deadline: null });
+    // An explicit send can start while an earlier send's turn is not confirmed yet. That gate keeps
+    // watching the turn until this message commits its own key: a refusal before it frees nothing.
+    if (!this.gates.get(item.paneId)?.committed) this.gates.set(item.paneId, { by: item.message.id, committed: false, sawWorking: false, completed: false, deadline: null });
     this.publish(item.owner, item.paneId);
     return true;
   }
@@ -100,7 +103,7 @@ export class PendingInputs<Owner, Lease> {
   /** Status cycles before the committing key belong to earlier work, never this submission. */
   committing(item: PendingRecord<Owner, Lease>, steeringWorkingTurn = false): void {
     if (this.records.get(item.message.id) !== item || !item.inFlight) return;
-    this.gates.set(item.paneId, { committed: true, sawWorking: steeringWorkingTurn, completed: false, deadline: steeringWorkingTurn ? null : this.now() + this.startTimeoutMs });
+    this.gates.set(item.paneId, { by: item.message.id, committed: true, sawWorking: steeringWorkingTurn, completed: false, deadline: steeringWorkingTurn ? null : this.now() + this.startTimeoutMs });
   }
 
   settle(item: PendingRecord<Owner, Lease>, fault?: Fault, uncertain = false, retryWhenReady = false): void {
@@ -115,7 +118,8 @@ export class PendingInputs<Owner, Lease> {
     }
     item.message.state = uncertain ? "uncertain" : retryWhenReady ? "queued" : "held";
     if (retryWhenReady && !uncertain) delete item.message.error; else item.message.error = fault;
-    this.gates.delete(item.paneId);
+    const gate = this.gates.get(item.paneId);
+    if (uncertain || gate?.by === item.message.id || gate?.completed) this.gates.delete(item.paneId);
     if (uncertain) this.holdPane(item.paneId, fault);
     this.publish(item.owner, item.paneId);
   }
