@@ -655,6 +655,7 @@ export function App() {
       openPalette: () => setPaletteOpen(true),
       openSettings: () => {
         setDrawerOpen(false);
+        setSettingsSection(null);
         setSettingsOpen(true);
       },
       openAddPc: () => {

@@ -39,12 +39,13 @@ export function useUpdates(enabled: boolean) {
     return () => { stopped = true; clearTimeout(timer); };
   }, [enabled, refresh, visible]);
 
-  // what the release brings, asked for once per release: the status is polled, the notes are long
+  // what the release brings, asked for once per release: the status is polled, the notes are long.
+  // `available` is not asked here: every check reports nothing available while it runs, and
+  // offeredNotes drops what does not belong to the release on offer
   const [fetched, setFetched] = useState<UpdateNotes | null>(null);
-  const offered = enabled && status?.available ? status.latest_revision : null;
+  const offered = enabled && status && status.latest_revision !== status.current_revision ? status.latest_revision : null;
   useEffect(() => {
     if (!enabled) { setFetched(null); return; }
-    // every check reports nothing available while it runs: the notes read so far stay
     if (!offered) return;
     let live = true;
     // a server older than the notes has no answer: the update is offered without them
