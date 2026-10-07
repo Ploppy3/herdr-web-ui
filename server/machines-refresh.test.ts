@@ -181,6 +181,42 @@ describe("machine snapshot refresh races", () => {
     expect(manager.list()[0]?.snapshot?.panes).toEqual([]);
   });
 
+  it("reads the roster again when herdr names a local pane's agent anew, not at the next 5 s read", async () => {
+    const { manager, drive, local } = await fixture();
+    await manager.refreshLocal();
+    // what the collector has heard so far is what the roster shows
+    manager.localAgents(snapshot("idle").panes, true);
+    await until(() => !drive.localBusy && manager.list()[0]?.snapshot?.panes[0]?.agent === "codex");
+    const before = local.calls();
+    // another agent starts there: herdr names it in a status event, and the frame that tells pages of it names none
+    local.set({ ...snapshot("idle"), panes: [{ ...snapshot("idle").panes[0]!, agent: "opencode" }] });
+    manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }]);
+    await until(() => manager.list()[0]?.snapshot?.panes[0]?.agent === "opencode");
+    expect(local.calls()).toBe(before + 1);
+    // said again, it is no news: nothing is read
+    manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }]);
+    manager.localAgents([{ pane_id: "fixture:p1", agent: "opencode" }], true);
+    await until(() => !drive.localBusy);
+    expect(local.calls()).toBe(before + 1);
+  });
+
+  it("reads the roster again for a pane first heard of with an agent, and forgets a pane that is gone", async () => {
+    const { manager, drive, local } = await fixture();
+    await manager.refreshLocal();
+    const before = local.calls();
+    // a pane first heard of as a shell is what the roster's own read of it showed
+    manager.localAgents([{ pane_id: "fixture:p2", agent: null }]);
+    await until(() => !drive.localBusy);
+    expect(local.calls()).toBe(before);
+    // one first heard of with an agent may have got it after that read
+    manager.localAgents(snapshot("idle").panes, true);
+    await until(() => local.calls() === before + 1 && !drive.localBusy);
+    // fixture:p1 closed and its id comes back with the same agent: heard of anew
+    manager.localAgents([], true);
+    manager.localAgents(snapshot("idle").panes, true);
+    await until(() => local.calls() === before + 2 && !drive.localBusy);
+  });
+
   it("keeps a newer remote status and retries the invalidated HTTP snapshot", async () => {
     const { drive, rosters, remote, runtime, send } = await remoteFixture();
     remote.hold();

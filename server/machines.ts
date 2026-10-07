@@ -85,6 +85,8 @@ export class MachineManager {
   private localBusy = false;
   private localRefreshQueued = false;
   private localRevision = 0;
+  /** each local pane's agent as herdr last named it to the status collector */
+  private heardAgents = new Map<string, string | null>();
   private localTimer: ReturnType<typeof setInterval>;
   private saveTimer?: ReturnType<typeof setTimeout>;
   private statePath: string;
@@ -141,6 +143,28 @@ export class MachineManager {
       this.local.snapshot = { ...this.local.snapshot, panes: this.local.snapshot.panes.map((p: HerdrPane) => p.pane_id === message.pane_id ? paneAfterStatus(p, message) : p) };
     }
     if (message.type === "session-changed" || message.type === "pane-exited") void this.refreshLocal();
+  }
+  /**
+   * Which agent local panes run, as the status collector heard it: in an event (that pane), or
+   * in the snapshot it reconciles from (`all`: every pane there is). The roster is read on a
+   * timer and patched by status frames, which name no agent, so an agent herdr names anew would
+   * show up to 5 s late. A page that opens the pane meanwhile takes it for a shell: it opens the
+   * terminal lens, and attaching there fits the shared grid to that page. Read again now.
+   */
+  localAgents(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[], all = false): void {
+    let news = false;
+    for (const pane of panes) {
+      const agent = pane.agent ?? null;
+      const before = this.heardAgents.get(pane.pane_id);
+      this.heardAgents.set(pane.pane_id, agent);
+      // a pane first heard of as a shell is what the roster's own read of it showed
+      if (before !== agent && !(before === undefined && agent === null)) news = true;
+    }
+    if (all) {
+      const listed = new Set(panes.map((pane) => pane.pane_id));
+      for (const paneId of [...this.heardAgents.keys()]) if (!listed.has(paneId)) this.heardAgents.delete(paneId);
+    }
+    if (news) void this.refreshLocal();
   }
   async refreshLocal(): Promise<void> {
     if (this.stopped) return;
