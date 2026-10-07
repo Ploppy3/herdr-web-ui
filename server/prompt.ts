@@ -1516,6 +1516,14 @@ function parseCodexModel(screen: string): ParsedPrompt | null {
 }
 
 /**
+ * Whether a model list of Claude Code's or Codex's holds the end of the screen, read or not. Enter
+ * there saves a default, so nothing that ends in Enter is typed while one is open.
+ */
+export function modelListWaits(agent: string, screen: string): boolean {
+  return claudeModelListWaits(screen) || (agent === "codex" && codexModelListWaits(screen));
+}
+
+/**
  * Whether Claude Code's model list holds the end of the screen, by its hint alone: also a list
  * parseClaudeModel could not read (a name the pane cut in two). Such a list gets no fallback card
  * while herdr happens to report the pane blocked: that card offers Enter, and Enter on this list

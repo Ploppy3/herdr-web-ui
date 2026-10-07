@@ -147,6 +147,44 @@ describe("bridge pending input", () => {
     expect(third.message.error?.code).toBe("pending_turn_unconfirmed");
   });
 
+  it("keeps a completion the collector reported while a snapshot that still said working was being read", () => {
+    const f = fixture();
+    f.queue.status("p1", "working");
+    const mark = f.queue.mark("p1");
+    f.queue.status("p1", "done");
+    f.queue.observe("p1", "working", mark);
+    const item = f.enqueue(1);
+    expect(f.queue.next("p1")).toBe(item);
+  });
+
+  it("takes a snapshot's status when no event came since, also as the first word on a pane", () => {
+    const f = fixture(); const item = f.enqueue(1);
+    f.queue.observe("p1", "idle", f.queue.mark("p1"));
+    expect(f.queue.next("p1")).toBe(item);
+    f.queue.observe("p1", "working", f.queue.mark("p1"));
+    expect(f.queue.next("p1")).toBeNull();
+  });
+
+  it("knows a pane where a message still waits its turn", () => {
+    const f = fixture(); f.enqueue(1);
+    expect(f.queue.waiting("p1")).toBe(true);
+    expect(f.queue.waiting("p2")).toBe(false);
+    f.queue.hold("a");
+    expect(f.queue.waiting("p1")).toBe(false);
+  });
+
+  it("forgets an ended pane's status and its turn gate", () => {
+    const f = fixture(); const first = f.enqueue(1);
+    f.queue.status("p1", "idle");
+    expect(f.queue.claim(first, true)).toBe(true); f.queue.committing(first); f.queue.settle(first);
+    f.queue.status("p1", "working");
+    f.queue.forget("p1");
+    const second = f.enqueue(2);
+    expect(f.queue.next("p1")).toBeNull();
+    f.queue.status("p1", "idle");
+    expect(f.queue.next("p1")).toBe(second);
+  });
+
   it("ignores another turn's pre-key cycle and waits for the committed message's own cycle", () => {
     const f = fixture(); const first = f.enqueue(1); const second = f.enqueue(2);
     f.queue.status("p1", "idle"); f.queue.claim(first, true);

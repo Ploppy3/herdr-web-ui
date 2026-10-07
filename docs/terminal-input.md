@@ -31,7 +31,10 @@ and observe mode pause the pending list; reconnect or reload cannot rearm it. Lo
 lease permanently cancels its in-flight send, even if that connection rejoins the same attachment
 or returns to interact before Enter. A queue request that arrives after the agent finishes uses
 the same guarded paste-and-Enter path; one that finds no agent in front of the pane is refused,
-and nothing is typed into the program there. An uncertain delivery never retries automatically. Secret
+and nothing is typed into the program there; one that finds an earlier message still waiting takes
+its place behind it. The checks read the pane's live screen, not a viewport scrolled into its
+history, and leave a model list alone even when no reader could read it, since Enter there saves
+a default. An uncertain delivery never retries automatically. Secret
 input remains outside this path, and legacy held messages retain their explicit Send now/Discard
 recovery. Older bridges cannot silently turn a working queue request into immediate input. Send now delivers through the existing paste-and-Enter
 path; each agent controls when it consumes that input. It is not a native app-server steering API.

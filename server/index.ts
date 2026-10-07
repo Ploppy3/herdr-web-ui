@@ -54,7 +54,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, modelListWaits, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -516,12 +516,14 @@ export function createServer(
     if (identity && (identity.agent !== current.agent || identity.terminalId !== current.terminalId || identity.session !== current.session)) {
       throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
     }
-    const screen = (await paneRead({ paneId, source: "visible", format: "text" })).text;
+    // the live screen, not the viewport: a pane scrolled into its history still draws its next
+    // menu or password prompt at the bottom (server/prompt.ts liveScreen)
+    const screen = (await paneRead({ paneId, source: "detection", format: "text" })).text;
     if (secretPrompt(screen, lease.attachment.cols) !== null) {
       throw new HerdrError("agent_blocked", "The terminal is waiting for masked input; answer it with the secret-input form first");
     }
     const collapsed = current.agent === "codex" && codexQuestionsCollapsed(screen);
-    if (current.agent && (parseInteractivePrompt(current.agent, screen) !== null || (pane.agent_status === "blocked" && !collapsed))) {
+    if (current.agent && (parseInteractivePrompt(current.agent, screen) !== null || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
       throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
     }
     if (current.agent && !["working", "idle", "done"].includes(pane.agent_status) && !collapsed) {
@@ -537,12 +539,15 @@ export function createServer(
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
+    // what the checks below read is older than a status event that arrives while they run
+    let mark = pending.mark(paneId);
     try {
       const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
       if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
+      mark = pending.mark(paneId);
       const context = await pendingContext(owner, paneId, lease, identity);
       if (automatic && context.working) {
-        pending.status(paneId, "working");
+        pending.observe(paneId, "working", mark);
         throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
       }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
@@ -560,7 +565,7 @@ export function createServer(
       return { ok: true };
     } catch (error) {
       const fault = wrote ? { code: "submit_changed", message: "Pending-message delivery could not be confirmed. Check the terminal before sending again." } : pendingFault(error);
-      if (automatic && !wrote && fault.code === "agent_blocked") pending.status(paneId, "blocked");
+      if (automatic && !wrote && fault.code === "agent_blocked") pending.observe(paneId, "blocked", mark);
       return { ok: false, ...fault };
     }
   }
@@ -1149,7 +1154,7 @@ export function createServer(
     },
     onPaneEnded: (paneId) => {
       holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
-      pending.status(paneId, "unknown");
+      pending.forget(paneId);
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
@@ -2117,21 +2122,24 @@ export function createServer(
                 if (message.delivery === "queue") {
                   let book = pendingRequests.get(client);
                   if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }
-                  const fingerprint = JSON.stringify([message.pane_id, message.text, message.payload]);
+                  // a digest, so a receipt kept for replay never holds a large request's bytes
+                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload])).digest("hex");
                   const previous = book.get(message.id, fingerprint);
                   const lease = previous ? null : pendingLease(client, message.pane_id);
                   const reply = previous ?? book.run(message.id, fingerprint, () => serialize(message.pane_id, async (): Promise<SubmitReply> => {
                     const text = pendingText(message.text);
+                    const mark = pending.mark(message.pane_id);
                     const context = await pendingContext(client, message.pane_id, lease!);
                     if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "This pending message waited too long; nothing was typed");
                     if (!context.working) {
                       // the agent left while the message was on its way: a chat follow-up is not typed into what is there now
                       if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
                       // A request that raced the turn's finish still needs cancellable
-                      // paste + Enter; agent.prompt commits its key inside herdr.
-                      return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
+                      // paste + Enter; agent.prompt commits its key inside herdr. With a message
+                      // already waiting its turn here, this one takes its place behind it instead.
+                      if (!pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
                     }
-                    pending.status(message.pane_id, context.pane.agent_status);
+                    pending.observe(message.pane_id, context.pane.agent_status, mark);
                     const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity);
                     return { ok: true, pending: item.message };
                   }).catch((error): SubmitReply => ({ ok: false, ...pendingFault(error) })));

@@ -28,6 +28,8 @@ export class PendingInputError extends Error {
 export class PendingInputs<Owner, Lease> {
   private readonly records = new Map<string, PendingRecord<Owner, Lease>>();
   private readonly statuses = new Map<string, AgentStatus>();
+  /** how many status events each pane has had: orders a snapshot read against them (mark, observe) */
+  private readonly events = new Map<string, number>();
   private readonly gates = new Map<string, TurnGate>();
   private readonly closed = new Map<Owner, number>();
   private readonly removed = new Map<string, { owner: Owner; paneId: string; outcome: Removed["outcome"] }>();
@@ -132,7 +134,29 @@ export class PendingInputs<Owner, Lease> {
     return true;
   }
 
+  /** The pane's status events so far. A snapshot read after this point is applied with it (observe). */
+  mark(paneId: string): number { return this.events.get(paneId) ?? 0; }
+
+  /** A status event from the collector. */
   status(paneId: string, status: AgentStatus): void {
+    this.events.set(paneId, this.mark(paneId) + 1);
+    this.apply(paneId, status);
+  }
+
+  /** A status read from a snapshot taken after `mark`: an event that came since is newer, and stands. */
+  observe(paneId: string, status: AgentStatus, mark: number): void {
+    if (this.mark(paneId) === mark) this.apply(paneId, status);
+  }
+
+  /** Whether a message of any connection still waits its turn on the pane. */
+  waiting(paneId: string): boolean {
+    return [...this.records.values()].some((item) => item.paneId === paneId && (item.inFlight || item.message.state === "queued"));
+  }
+
+  /** The pane ended: its held messages stay with their owners, its status and turn gate go. */
+  forget(paneId: string): void { this.statuses.delete(paneId); this.events.delete(paneId); this.gates.delete(paneId); }
+
+  private apply(paneId: string, status: AgentStatus): void {
     this.statuses.set(paneId, status);
     const gate = this.gates.get(paneId);
     if (!gate?.committed) return;

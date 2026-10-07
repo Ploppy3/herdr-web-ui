@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
 import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
+import { parseInteractivePrompt } from "./prompt.ts";
 import type { PendingMessage } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-pending-"));
@@ -77,10 +78,11 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
     await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent, state: value });
     await reader.wait((frame) => frame.type === "pane-status" && frame.pane_id === pane && (value === "idle" || value === "unknown" ? ["idle", "done"].includes(frame.agent_status) : frame.agent_status === value), from);
   };
-  const showScreen = async (text: string) => {
+  // `ending`: what the screen ends with once drawn, for a text taller than the pane
+  const showScreen = async (text: string, ending = text) => {
     writeFileSync(screenFile, text);
     const deadline = Date.now() + 5_000;
-    while (!(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(text.trimEnd())) {
+    while (!(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(ending.trimEnd())) {
       if (Date.now() >= deadline) throw new Error("recorder screen did not update");
       await Bun.sleep(25);
     }
@@ -214,6 +216,43 @@ describe("connection-owned pending input", () => {
     expect(await f.socket.result(1)).toMatchObject({ ok: false, code: "agent_not_ready" });
     expect(f.bytes()).toBe("");
     expect(f.socket.seen.some((frame) => frame.type === "pending-messages")).toBe(false);
+  }, 30_000);
+
+  it("keeps a request that finds the agent ready behind the messages already waiting", async () => {
+    const f = await setup("ready-behind", "claude", "› Message\n", { pendingStartTimeoutMs: 20_000 });
+    const first = await f.queue(1, "first"); const second = await f.queue(2, "second");
+    await f.state("idle"); await f.removed(first.id); await f.waitBytes("\r");
+    // the first one's turn has not been seen starting, so the second still waits while the pane reads ready
+    const third = await f.queue(3, "third");
+    expect(f.bytes()).toBe(`${paste("first")}\r`);
+    await f.state("working"); await f.state("idle"); await f.removed(second.id);
+    await f.state("working"); await f.state("idle"); await f.removed(third.id); await f.waitBytes(`${paste("third")}\r`);
+    expect(f.bytes()).toBe(`${paste("first")}\r${paste("second")}\r${paste("third")}\r`);
+  }, 30_000);
+
+  it("reads the pane's live screen: a menu drawn below a scrolled viewport still stops Send now", async () => {
+    const f = await setup("scrolled", "codex"); const message = await f.queue(1, "after the menu");
+    const history = Array.from({ length: 150 }, (_, index) => `line ${index + 1}`).join("\n");
+    await f.showScreen(`${history}\n${approval}`, approval);
+    const { pane: { scroll } } = await herdrRpc<{ pane: { scroll: { offset_from_bottom: number; viewport_rows: number } } }>("pane.scroll", { pane_id: f.pane, offset_from_bottom: 60 });
+    expect(scroll.offset_from_bottom).toBeGreaterThanOrEqual(scroll.viewport_rows);
+    expect((await paneRead({ paneId: f.pane, source: "visible", format: "text" })).text).not.toContain("Would you like");
+    f.socket.send({ type: "pending-action", id: 2, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    expect(await f.socket.action(2)).toMatchObject({ ok: false, code: "agent_blocked" });
+    expect(f.bytes()).toBe("");
+  }, 30_000);
+
+  it("leaves a model list no reader could read alone, where Enter would save a default", async () => {
+    const f = await setup("model-list"); const message = await f.queue(1, "after the list");
+    // a name the pane cut in two: no card is read from it, and herdr does not report the pane blocked
+    const list = ["❯ /model", "", "  Select model", "  Switch between Claude models. Your pick becomes the default for new sessions.", "",
+      "    1.  Default (recommended)  Opus 5.5 with 1M context", "  ❯ 2.  Opus", "        4.7                    Best for everyday, complex tasks", "",
+      "  ◐ Medium effort (default) ←/→ to adjust", "", "  Enter to set as default · s to use this session only · Esc to cancel", ""].join("\n");
+    expect(parseInteractivePrompt("claude", list)).toBeNull();
+    await f.showScreen(list);
+    f.socket.send({ type: "pending-action", id: 2, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    expect(await f.socket.action(2)).toMatchObject({ ok: false, code: "agent_blocked" });
+    expect(f.bytes()).toBe("");
   }, 30_000);
 
   it("supports pending input on a mirrored attachment without a PTY sidecar", async () => {
